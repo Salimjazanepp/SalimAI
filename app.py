@@ -24,9 +24,11 @@ with st.sidebar:
         accept_multiple_files=True
     )
 
-# استخراج النصوص
-def get_text(files):
+# ✅ تخزين الفهرس لتسريع الأداء
+@st.cache_resource
+def process_files(files):
     all_text = ""
+
     for file in files:
         try:
             if file.name.endswith('.pdf'):
@@ -38,71 +40,64 @@ def get_text(files):
 
             elif file.name.endswith('.xlsx'):
                 df = pd.read_excel(file)
-                all_text += df.to_string() + "\n"
+
+                columns = ", ".join(df.columns)
+                all_text += f"اسماء الأعمدة: {columns}\n"
+
+                for _, row in df.iterrows():
+                    row_text = ", ".join([f"{col}: {row[col]}" for col in df.columns])
+                    all_text += row_text + "\n"
 
         except:
             continue
-    return all_text
+
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=800,
+        chunk_overlap=150
+    )
+
+    chunks = text_splitter.split_text(all_text)
+
+    embeddings = OpenAIEmbeddings(openai_api_key=api_key)
+
+    vectorstore = FAISS.from_texts(
+        texts=chunks,
+        embedding=embeddings
+    )
+
+    return vectorstore
+
+# ===============================
 
 if uploaded_files:
-    raw_text = get_text(uploaded_files)
+    with st.spinner("سالم يحلل الملفات (مرة واحدة فقط)..."):
+        vectorstore = process_files(tuple(uploaded_files))
 
-    if raw_text:
-        # تقسيم ذكي
-        text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=800,
-            chunk_overlap=150
-        )
+    st.success("سالم جاهز للرد!")
 
-        chunks = text_splitter.split_text(raw_text)
+    user_query = st.chat_input("اسأل سالم...")
 
-        with st.spinner("سالم يحلل البيانات..."):
-            try:
-                embeddings = OpenAIEmbeddings(openai_api_key=api_key)
+    if user_query:
+        with st.chat_message("user"):
+            st.write(user_query)
 
-                vectorstore = FAISS.from_texts(
-                    texts=chunks,
-                    embedding=embeddings
-                )
+        with st.chat_message("assistant"):
 
-                st.success("سالم جاهز للرد!")
+            llm = ChatOpenAI(
+                model_name="gpt-3.5-turbo",
+                openai_api_key=api_key
+            )
 
-                user_query = st.chat_input("اسأل سالم...")
+            # 🔍 البحث
+            docs = vectorstore.similarity_search(user_query, k=3)
 
-                if user_query:
-                    with st.chat_message("user"):
-                        st.write(user_query)
+            context = "\n\n".join([
+                doc.page_content for doc in docs
+            ])
 
-                    with st.chat_message("assistant"):
-
-                        llm = ChatOpenAI(
-                            model_name="gpt-3.5-turbo",
-                            openai_api_key=api_key
-                        )
-
-                        # البحث
-                        docs = vectorstore.similarity_search(user_query, k=4)
-
-                        # فلترة
-                        filtered_docs = []
-                        for doc in docs:
-                            if user_query.lower() in doc.page_content.lower():
-                                filtered_docs.append(doc)
-
-                        if not filtered_docs:
-                            filtered_docs = docs
-
-                        final_docs = filtered_docs[:3]
-
-                        # دمج
-                        context = "\n\n".join([
-                            doc.page_content for doc in final_docs
-                        ])
-
-                        # البرومبت
-                        prompt = f"""
+            prompt = f"""
 أنت مساعد سلامة مهنية ذكي.
-اعتمد فقط على المعلومات التالية للإجابة:
+جاوب فقط من البيانات التالية:
 
 {context}
 
@@ -110,15 +105,9 @@ if uploaded_files:
 {user_query}
 """
 
-                        response = llm.invoke(prompt)
+            response = llm.invoke(prompt)
 
-                        st.write(response.content)
-
-            except Exception as e:
-                st.error(f"حدث خطأ فني: {e}")
-
-    else:
-        st.warning("لم يتم العثور على نص داخل الملفات.")
+            st.write(response.content)
 
 else:
     st.info("ارفع ملفاتك لتبدأ المحادثة مع سالم.")
