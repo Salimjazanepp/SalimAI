@@ -7,7 +7,6 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 st.set_page_config(page_title="سالم - مساعد السلامة الذكي", page_icon="🛡️")
 
-# التحقق من المفتاح
 if "OPENAI_API_KEY" not in st.secrets:
     st.error("يرجى إضافة المفتاح في Secrets")
     st.stop()
@@ -24,10 +23,11 @@ with st.sidebar:
         accept_multiple_files=True
     )
 
-# ✅ تخزين الفهرس لتسريع الأداء
+# 🔥 تخزين البيانات
 @st.cache_resource
 def process_files(files):
-    all_text = ""
+    text_data = ""
+    excel_data = []
 
     for file in files:
         try:
@@ -36,27 +36,22 @@ def process_files(files):
                 for page in reader.pages:
                     text = page.extract_text()
                     if text:
-                        all_text += text + "\n"
+                        text_data += text + "\n"
 
             elif file.name.endswith('.xlsx'):
                 df = pd.read_excel(file)
-
-                columns = ", ".join(df.columns)
-                all_text += f"اسماء الأعمدة: {columns}\n"
-
-                for _, row in df.iterrows():
-                    row_text = ", ".join([f"{col}: {row[col]}" for col in df.columns])
-                    all_text += row_text + "\n"
+                excel_data.append(df)
 
         except:
             continue
 
+    # تجهيز النصوص
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=800,
         chunk_overlap=150
     )
 
-    chunks = text_splitter.split_text(all_text)
+    chunks = text_splitter.split_text(text_data)
 
     embeddings = OpenAIEmbeddings(openai_api_key=api_key)
 
@@ -65,15 +60,15 @@ def process_files(files):
         embedding=embeddings
     )
 
-    return vectorstore
+    return vectorstore, excel_data
 
 # ===============================
 
 if uploaded_files:
-    with st.spinner("سالم يحلل الملفات (مرة واحدة فقط)..."):
-        vectorstore = process_files(tuple(uploaded_files))
+    with st.spinner("سالم يحلل الملفات..."):
+        vectorstore, excel_data = process_files(tuple(uploaded_files))
 
-    st.success("سالم جاهز للرد!")
+    st.success("سالم جاهز!")
 
     user_query = st.chat_input("اسأل سالم...")
 
@@ -88,16 +83,43 @@ if uploaded_files:
                 openai_api_key=api_key
             )
 
-            # 🔍 البحث
-            docs = vectorstore.similarity_search(user_query, k=3)
+            answer = ""
 
-            context = "\n\n".join([
-                doc.page_content for doc in docs
-            ])
+            # 🔍 أولًا: نحاول نجاوب من Excel
+            if excel_data:
+                for df in excel_data:
+                    try:
+                        # نحول الجدول لنص مفهوم
+                        preview = df.head(10).to_string()
 
-            prompt = f"""
-أنت مساعد سلامة مهنية ذكي.
-جاوب فقط من البيانات التالية:
+                        prompt = f"""
+هذا جدول بيانات:
+
+{preview}
+
+السؤال:
+{user_query}
+
+إذا كان الجواب موجود في الجدول، أجب فقط.
+إذا لا، قل: غير موجود.
+"""
+
+                        response = llm.invoke(prompt).content
+
+                        if "غير موجود" not in response:
+                            answer = response
+                            break
+                    except:
+                        continue
+
+            # 🔍 ثانيًا: لو ما حصلنا جواب من Excel → نرجع للنصوص
+            if not answer:
+                docs = vectorstore.similarity_search(user_query, k=3)
+
+                context = "\n\n".join([doc.page_content for doc in docs])
+
+                prompt = f"""
+اعتمد على المعلومات التالية:
 
 {context}
 
@@ -105,9 +127,10 @@ if uploaded_files:
 {user_query}
 """
 
-            response = llm.invoke(prompt)
+                response = llm.invoke(prompt)
+                answer = response.content
 
-            st.write(response.content)
+            st.write(answer)
 
 else:
-    st.info("ارفع ملفاتك لتبدأ المحادثة مع سالم.")
+    st.info("ارفع ملفاتك لتبدأ")
