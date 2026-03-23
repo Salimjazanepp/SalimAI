@@ -4,4 +4,3 @@ openpyxl
 pypdf
 langchain
 openai
-faiss-cpu
