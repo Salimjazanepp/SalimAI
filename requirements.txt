@@ -1,7 +1,7 @@
 streamlit
 pandas
 openpyxl
-PyPDF2
+pypdf
 langchain
 openai
 faiss-cpu
