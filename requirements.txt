@@ -5,3 +5,5 @@ pypdf[crypto]
 langchain
 langchain-openai
 openai
+faiss-cpu
+tiktoken
