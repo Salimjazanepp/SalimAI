@@ -1,50 +1,45 @@
 import streamlit as st
 import pandas as pd
-from PyPDF2 import PdfReader
+from pypdf import PdfReader # المكتبة الجديدة الأسرع
 
-# إعدادات الواجهة
 st.set_page_config(page_title="سالم - مساعد السلامة الذكي", page_icon="🛡️")
 
 st.title("🛡️ مساعد السلامة الذكي (سالم)")
-st.markdown("---")
 
-# القائمة الجانبية لرفع البيانات
+# التأكد من وجود المفتاح السري
+if "OPENAI_API_KEY" not in st.secrets:
+    st.error("الرجاء إضافة المفتاح السري في إعدادات Secrets")
+    st.stop()
+
 with st.sidebar:
     st.header("📂 مستودع البيانات")
-    uploaded_files = st.file_uploader("ارفع ملفات (PDF أو Excel)", 
-                                    type=['pdf', 'xlsx'], 
-                                    accept_multiple_files=True)
+    uploaded_files = st.file_uploader("ارفع ملفات (PDF أو Excel)", type=['pdf', 'xlsx'], accept_multiple_files=True)
 
-# دالة لقراءة النصوص من الملفات المرفوعة
 def process_files(files):
     all_data = ""
     for file in files:
         if file.name.endswith('.pdf'):
-            pdf_reader = PdfReader(file)
-            for page in pdf_reader.pages:
-                all_data += page.extract_text()
+            reader = PdfReader(file)
+            for page in reader.pages:
+                content = page.extract_text()
+                if content: all_data += content
         elif file.name.endswith('.xlsx'):
             df = pd.read_excel(file)
             all_data += df.to_string()
     return all_data
 
-# منطق المحادثة
 if uploaded_files:
-    context = process_files(uploaded_files)
-    st.success(f"تم تحميل {len(uploaded_files)} ملفات بنجاح!")
+    with st.spinner("جاري تحليل البيانات..."):
+        context = process_files(uploaded_files)
+    st.success("تم تحميل الملفات بنجاح! سالم جاهز الآن.")
     
     user_query = st.text_input("اسأل سالم عن أي معلومة داخل الملفات:")
     
     if user_query:
-        # ملاحظة: هنا نحتاج لربط OpenAI للرد بذكاء
-        # حالياً سنقوم ببحث بسيط حتى نضع مفتاح الـ API
-        if user_query.lower() in context.lower():
-            st.info("🤖 سالم يبحث الآن...")
-            st.write("وجدت معلومات متعلقة بسؤالك في الملفات المرفوعة.")
-        else:
-            st.warning("لم أجد هذه المعلومة بدقة، يرجى التأكد من محتوى الملفات.")
+        from langchain.chat_models import ChatOpenAI
+        llm = ChatOpenAI(openai_api_key=st.secrets["OPENAI_API_KEY"], model_name="gpt-3.5-turbo")
+        with st.spinner("سالم يفكر..."):
+            response = llm.predict(f"بناءً على هذه البيانات: {context}\n\nالسؤال: {user_query}")
+            st.info(response)
 else:
     st.info("الرجاء رفع ملفات العمل من القائمة الجانبية ليبدأ سالم بالعمل.")
-
-st.markdown("---")
-st.caption("تطوير نظام سالم للسلامة المهنية - 2026")
