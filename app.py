@@ -1,64 +1,56 @@
 import streamlit as st
-import pandas as pd
 from pypdf import PdfReader
-from langchain_openai import ChatOpenAI # التعديل هنا
+from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+from langchain.text_splitter import CharacterTextSplitter
+from langchain_community.vectorstores import FAISS
+from langchain.chains import RetrievalQA
 
-# 1. إعدادات واجهة التطبيق
 st.set_page_config(page_title="سالم - مساعد السلامة الذكي", page_icon="🛡️")
 
-# 2. التحقق من وجود المفتاح السري
 if "OPENAI_API_KEY" not in st.secrets:
-    st.error("خطأ: يرجى إضافة OPENAI_API_KEY في إعدادات Secrets")
+    st.error("يرجى إضافة المفتاح في Secrets")
     st.stop()
 
 api_key = st.secrets["OPENAI_API_KEY"]
 
-# 3. دالة معالجة الملفات
-def process_files(files):
-    all_data = ""
-    for file in files:
-        try:
-            if file.name.endswith('.pdf'):
-                reader = PdfReader(file)
-                if reader.is_encrypted:
-                    try: reader.decrypt("")
-                    except: pass
-                for page in reader.pages:
-                    content = page.extract_text()
-                    if content: all_data += content + "\n"
-            elif file.name.endswith('.xlsx') or file.name.endswith('.xls'):
-                df = pd.read_excel(file)
-                all_data += f"\nبيانات ملف {file.name}:\n" + df.to_string() + "\n"
-        except Exception as e:
-            st.warning(f"تعذر قراءة {file.name}")
-    return all_data
-
-# 4. واجهة المستخدم
 st.title("🛡️ مساعد السلامة الذكي (سالم)")
 
 with st.sidebar:
     st.header("📂 مستودع البيانات")
-    uploaded_files = st.file_uploader("ارفع ملفات (PDF أو Excel)", type=['pdf', 'xlsx', 'xls'], accept_multiple_files=True)
+    uploaded_files = st.file_uploader("ارفع ملفات PDF", type=['pdf'], accept_multiple_files=True)
 
-# 5. منطق الرد
 if uploaded_files:
-    with st.spinner("جاري تحليل ملفاتك..."):
-        context_data = process_files(uploaded_files)
+    # 1. قراءة النصوص
+    text = ""
+    for file in uploaded_files:
+        reader = PdfReader(file)
+        for page in reader.pages:
+            text += page.extract_text() + "\n"
     
-    if context_data:
-        st.success("سالم جاهز للرد!")
-        user_query = st.chat_input("اسأل سالم عن أي معلومة...")
+    # 2. تقسيم النص إلى أجزاء صغيرة (عشان ما نتجاوز الليمت)
+    text_splitter = CharacterTextSplitter(separator="\n", chunk_size=1000, chunk_overlap=200)
+    chunks = text_splitter.split_text(text)
+    
+    # 3. إنشاء قاعدة بيانات للبحث السريع
+    with st.spinner("سالم يحلل البيانات الضخمة..."):
+        embeddings = OpenAIEmbeddings(openai_api_key=api_key)
+        vectorstore = FAISS.from_texts(texts=chunks, embedding=embeddings)
+        st.success("سالم جاهز الآن ومستعد لأسئلتك!")
+
+    # 4. نظام السؤال والجواب
+    user_query = st.chat_input("اسأل سالم عن أي معلومة...")
+    if user_query:
+        with st.chat_message("user"): st.write(user_query)
         
-        if user_query:
-            with st.chat_message("user"): st.write(user_query)
-            try:
-                llm = ChatOpenAI(api_key=api_key, model_name="gpt-3.5-turbo", temperature=0.3)
-                with st.chat_message("assistant"):
-                    with st.spinner("سالم يفكر..."):
-                        prompt = f"أنت مساعد اسمك سالم. بناءً على هذه البيانات:\n{context_data}\n\nسؤال المستخدم: {user_query}"
-                        response = llm.invoke(prompt) # تم التعديل لـ invoke
-                        st.write(response.content)
-            except Exception as e:
-                st.error(f"حدث خطأ: {e}")
+        qa = RetrievalQA.from_chain_type(
+            llm=ChatOpenAI(model_name="gpt-3.5-turbo", openai_api_key=api_key),
+            chain_type="stuff",
+            retriever=vectorstore.as_retriever()
+        )
+        
+        with st.chat_message("assistant"):
+            with st.spinner("يبحث في الملفات..."):
+                response = qa.run(user_query)
+                st.write(response)
 else:
-    st.info("الرجاء رفع الملفات للبدء.")
+    st.info("ارفع الملفات الكبيرة وسأقوم بتقسيمها وفهمها لك.")
