@@ -1,6 +1,7 @@
 streamlit
 pandas
 openpyxl
-pypdf
+pypdf[crypto]
 langchain
+langchain-community
 openai
