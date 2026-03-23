@@ -3,5 +3,5 @@ pandas
 openpyxl
 pypdf[crypto]
 langchain
-langchain-community
+langchain-openai
 openai
