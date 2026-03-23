@@ -7,6 +7,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 st.set_page_config(page_title="سالم - مساعد السلامة الذكي", page_icon="🛡️")
 
+# التحقق من المفتاح
 if "OPENAI_API_KEY" not in st.secrets:
     st.error("يرجى إضافة المفتاح في Secrets")
     st.stop()
@@ -23,7 +24,42 @@ with st.sidebar:
         accept_multiple_files=True
     )
 
-# 🔥 تخزين البيانات
+# ===============================
+# 🔥 دالة ذكية للتعامل مع Excel
+def smart_excel_query(df, query):
+    query = query.lower()
+
+    try:
+        # عدد الصفوف
+        if "عدد" in query:
+            return f"عدد الصفوف هو: {len(df)}"
+
+        # البحث عن قيمة
+        for col in df.columns:
+            for value in df[col].astype(str):
+                if value.lower() in query:
+                    row = df[df[col].astype(str) == value]
+                    return row.to_string(index=False)
+
+        # أكبر قيمة
+        if "أكبر" in query or "اعلى" in query:
+            numeric_cols = df.select_dtypes(include='number')
+            if not numeric_cols.empty:
+                return numeric_cols.max().to_string()
+
+        # أصغر قيمة
+        if "أصغر" in query or "اقل" in query:
+            numeric_cols = df.select_dtypes(include='number')
+            if not numeric_cols.empty:
+                return numeric_cols.min().to_string()
+
+    except:
+        pass
+
+    return None
+
+# ===============================
+# ⚡ تخزين البيانات لتسريع الأداء
 @st.cache_resource
 def process_files(files):
     text_data = ""
@@ -45,7 +81,6 @@ def process_files(files):
         except:
             continue
 
-    # تجهيز النصوص
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=800,
         chunk_overlap=150
@@ -85,46 +120,41 @@ if uploaded_files:
 
             answer = ""
 
-            # 🔍 أولًا: نحاول نجاوب من Excel
+            # ===============================
+            # 📊 أولًا: Excel (دقيق 100%)
             if excel_data:
                 for df in excel_data:
-                    try:
-                        # نحول الجدول لنص مفهوم
-                        preview = df.head(10).to_string()
+                    result = smart_excel_query(df, user_query)
+                    if result:
+                        answer = result
+                        break
 
-                        prompt = f"""
-هذا جدول بيانات:
-
-{preview}
-
-السؤال:
-{user_query}
-
-إذا كان الجواب موجود في الجدول، أجب فقط.
-إذا لا، قل: غير موجود.
-"""
-
-                        response = llm.invoke(prompt).content
-
-                        if "غير موجود" not in response:
-                            answer = response
-                            break
-                    except:
-                        continue
-
-            # 🔍 ثانيًا: لو ما حصلنا جواب من Excel → نرجع للنصوص
+            # ===============================
+            # 📄 ثانيًا: PDF (محسّن)
             if not answer:
-                docs = vectorstore.similarity_search(user_query, k=3)
+                docs = vectorstore.similarity_search(user_query, k=5)
 
-                context = "\n\n".join([doc.page_content for doc in docs])
+                context = "\n\n".join([
+                    doc.page_content for doc in docs
+                ])
 
                 prompt = f"""
-اعتمد على المعلومات التالية:
+أنت مساعد سلامة مهنية ذكي ودقيق.
 
+تعليمات:
+- أجب فقط من المعلومات الموجودة
+- لا تخمّن أبداً
+- إذا لم تجد الإجابة قل: "غير موجود في البيانات"
+- اذكر التفاصيل بوضوح
+- نظّم الإجابة
+
+المعلومات:
 {context}
 
 السؤال:
 {user_query}
+
+الإجابة:
 """
 
                 response = llm.invoke(prompt)
