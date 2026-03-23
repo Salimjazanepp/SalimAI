@@ -3,7 +3,7 @@ import pandas as pd
 from pypdf import PdfReader
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_community.vectorstores import FAISS
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 st.set_page_config(page_title="سالم - مساعد السلامة الذكي", page_icon="🛡️")
 
@@ -48,7 +48,7 @@ if uploaded_files:
     raw_text = get_text(uploaded_files)
 
     if raw_text:
-        # 🔥 تقسيم ذكي للنص
+        # تقسيم ذكي
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=800,
             chunk_overlap=150
@@ -58,8 +58,8 @@ if uploaded_files:
 
         with st.spinner("سالم يحلل البيانات..."):
             try:
-                # إنشاء embeddings + vector DB
                 embeddings = OpenAIEmbeddings(openai_api_key=api_key)
+
                 vectorstore = FAISS.from_texts(
                     texts=chunks,
                     embedding=embeddings
@@ -80,10 +80,10 @@ if uploaded_files:
                             openai_api_key=api_key
                         )
 
-                        # 1. البحث
+                        # البحث
                         docs = vectorstore.similarity_search(user_query, k=4)
 
-                        # 2. فلترة
+                        # فلترة
                         filtered_docs = []
                         for doc in docs:
                             if user_query.lower() in doc.page_content.lower():
@@ -92,15 +92,14 @@ if uploaded_files:
                         if not filtered_docs:
                             filtered_docs = docs
 
-                        # 3. اختيار أفضل نتائج
                         final_docs = filtered_docs[:3]
 
-                        # 4. دمج النصوص
+                        # دمج
                         context = "\n\n".join([
                             doc.page_content for doc in final_docs
                         ])
 
-                        # 5. بناء البرومبت
+                        # البرومبت
                         prompt = f"""
 أنت مساعد سلامة مهنية ذكي.
 اعتمد فقط على المعلومات التالية للإجابة:
@@ -111,7 +110,6 @@ if uploaded_files:
 {user_query}
 """
 
-                        # 6. إرسال الطلب
                         response = llm.invoke(prompt)
 
                         st.write(response.content)
