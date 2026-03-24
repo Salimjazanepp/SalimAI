@@ -4,7 +4,7 @@ from pypdf import PdfReader
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_community.vectorstores import FAISS
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain.schema import Document
+from langchain_core.documents import Document  # ✅ تم الإصلاح هنا
 
 st.set_page_config(page_title="سالم - مساعد السلامة الذكي", page_icon="🛡️")
 
@@ -56,10 +56,9 @@ def smart_excel_query(df, query):
     return None
 
 # ===============================
-# ⚡ تجهيز البيانات + إضافة مصادر
+# ⚡ تجهيز البيانات + المصادر
 @st.cache_resource
 def process_files(files):
-    text_data = ""
     excel_data = []
     documents = []
 
@@ -126,7 +125,7 @@ if uploaded_files:
             sources = []
 
             # ===============================
-            # 📊 Excel أولًا (دقة عالية)
+            # 📊 Excel أولًا
             if excel_data:
                 for df in excel_data:
                     result = smart_excel_query(df, user_query)
