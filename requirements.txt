@@ -1,14 +1,1 @@
-streamlit
-pandas
-openpyxl
-pypdf[crypto]
-
-langchain
-langchain-community
-langchain-openai
-langchain-text-splitters
-langchain-core
-
-openai
-faiss-cpu
-tiktoken
+pip install streamlit pandas langchain langchain-openai langchain-community faiss-cpu pypdf pdfplumber arabic-reshaper python-bidi
