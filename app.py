@@ -1,20 +1,57 @@
-# app.py (النسخة الأصلية لسالم)
+# app.py (نسخة “سالم” الذكي)
 import streamlit as st
+import os
+import json
 
-# عنوان الصفحة
-st.set_page_config(page_title="تطبيقي", layout="wide")
+st.set_page_config(page_title="سالم - ذاكرة الملفات", layout="wide")
+st.title("💾 سالم - استفسر عن الملفات")
 
-# عنوان رئيسي
-st.title("مرحبا بك في تطبيقي")
+# مجلد حفظ الملفات
+DATA_DIR = "data"
+os.makedirs(DATA_DIR, exist_ok=True)
+DATA_FILE = os.path.join(DATA_DIR, "memory.json")
 
-# نص ترحيبي
-st.write("هذا مثال لتطبيق Streamlit الأصلي.")
+# تحميل البيانات الموجودة مسبقًا
+if os.path.exists(DATA_FILE):
+    with open(DATA_FILE, "r", encoding="utf-8") as f:
+        memory = json.load(f)
+else:
+    memory = []
 
-# إضافة عناصر تفاعلية بسيطة
-name = st.text_input("أدخل اسمك:")
-if name:
-    st.write(f"أهلاً بك، {name}!")
+# ------------------------
+# رفع ملف جديد
+# ------------------------
+st.subheader("رفع ملف أو نص جديد")
+uploaded_file = st.file_uploader("اختر ملف TXT أو اكتب محتوى جديد", type=["txt"])
+new_text = st.text_area("أو اكتب نص هنا:")
 
-# مثال على زر
-if st.button("اضغط هنا"):
-    st.success("تم الضغط على الزر!")
+if st.button("احفظ في ذاكرة سالم"):
+    if uploaded_file:
+        content = uploaded_file.read().decode("utf-8")
+    elif new_text.strip() != "":
+        content = new_text
+    else:
+        content = None
+
+    if content:
+        memory.append(content)
+        with open(DATA_FILE, "w", encoding="utf-8") as f:
+            json.dump(memory, f, ensure_ascii=False, indent=4)
+        st.success("✅ تمت إضافة المحتوى إلى ذاكرة سالم.")
+    else:
+        st.warning("❌ لم يتم إدخال أي محتوى.")
+
+# ------------------------
+# استفسار عن أي محتوى
+# ------------------------
+st.subheader("اسأل سالم عن أي ملف أو نص")
+query = st.text_input("أدخل كلمة أو جملة للبحث:")
+
+if query.strip() != "":
+    results = [m for m in memory if query.lower() in m.lower()]
+    if results:
+        st.write(f"🔍 سالم وجد {len(results)} نتيجة:")
+        for r in results:
+            st.markdown(f"- {r}")
+    else:
+        st.warning("⚠️ لم يتم العثور على أي محتوى مطابق.")
