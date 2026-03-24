@@ -2,44 +2,27 @@ import subprocess
 import sys
 import os
 
-# --- 🚀 الجزء الأول: تثبيت المكتبات بأمر مباشر ومضمون ---
+# --- 🚀 المرحلة 1: تثبيت المكتبات إجبارياً ---
 def install_packages():
     packages = [
         "langchain", "langchain-openai", "langchain-community", 
         "faiss-cpu", "pdfplumber", "arabic-reshaper", 
-        "python-bidi", "pypdf", "openpyxl"
+        "python-bidi", "pypdf", "openpyxl", "langchain-core"
     ]
     for package in packages:
-        # تنفيذ الأمر كأنك تكتبه في الشاشة السوداء مباشرة
         subprocess.check_call([sys.executable, "-m", "pip", "install", package])
 
-# تنفيذ التثبيت مرة واحدة فقط عند بدء التشغيل
-if "INSTALLED" not in os.environ:
+# تنفيذ التثبيت فوراً عند التشغيل
+if "INSTALLED_SUCCESS" not in os.environ:
     install_packages()
-    os.environ["INSTALLED"] = "True"
+    os.environ["INSTALLED_SUCCESS"] = "True"
 
-# --- 🛡️ الجزء الثاني: استيراد المكتبات (الآن ستعمل 100%) ---
+# --- 🛡️ المرحلة 2: استيراد المكتبات الأساسية فقط ---
 import streamlit as st
 import pandas as pd
-import pdfplumber
-from langchain_openai import OpenAIEmbeddings, ChatOpenAI
-from langchain_community.vectorstores import FAISS
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_core.documents import Document
-from langchain.chains import ConversationalRetrievalChain
-from langchain.memory import ConversationBufferMemory
-from langchain.prompts import PromptTemplate
 
 # --- إعدادات واجهة سالم ---
 st.set_page_config(page_title="سالم - مساعد السلامة الذكي", page_icon="🛡️", layout="wide")
-
-st.markdown("""
-<style>
-    [data-testid="stChatMessage"] {direction: rtl; text-align: right;}
-    h1, h3, p {direction: rtl; text-align: right;}
-    .stMarkdown {direction: rtl; text-align: right;}
-</style>
-""", unsafe_allow_html=True)
 
 st.title("🛡️ مساعد السلامة الذكي (سالم)")
 st.markdown("### 🏭 إدارة سلامة محطة طاقة جازان")
@@ -51,9 +34,25 @@ if "OPENAI_API_KEY" not in st.secrets:
 
 api_key = st.secrets["OPENAI_API_KEY"]
 
+# --- 🧠 المرحلة 3: استدعاء مكتبات الذكاء الاصطناعي "عند الحاجة فقط" ---
+# نقلنا الـ imports هنا لضمان أنها لن تعمل إلا بعد التثبيت أعلاه
+def get_ai_tools():
+    from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+    from langchain_community.vectorstores import FAISS
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+    from langchain_core.documents import Document
+    from langchain.chains import ConversationalRetrievalChain
+    from langchain.memory import ConversationBufferMemory
+    from langchain.prompts import PromptTemplate
+    import pdfplumber
+    return OpenAIEmbeddings, ChatOpenAI, FAISS, RecursiveCharacterTextSplitter, Document, ConversationalRetrievalChain, ConversationBufferMemory, PromptTemplate, pdfplumber
+
 # --- معالجة الملفات ---
 @st.cache_resource
 def process_data(files):
+    # استدعاء الأدوات
+    OpenAIEmbeddings, ChatOpenAI, FAISS, RecursiveCharacterTextSplitter, Document, _, _, _, pdfplumber = get_ai_tools()
+    
     docs = []
     for f in files:
         if f.name.endswith('.pdf'):
@@ -76,7 +75,7 @@ def process_data(files):
 with st.sidebar:
     st.header("📂 المستندات")
     uploaded = st.file_uploader("ارفع الملفات", type=['pdf', 'xlsx'], accept_multiple_files=True)
-    if st.button("🔄 مسح"):
+    if st.button("🔄 مسح الذاكرة"):
         st.session_state.chat_history = []
         st.rerun()
 
@@ -84,13 +83,15 @@ if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
 if uploaded:
+    # استدعاء الأدوات اللازمة للمحادثة
+    _, ChatOpenAI, _, _, _, ConversationalRetrievalChain, ConversationBufferMemory, PromptTemplate, _ = get_ai_tools()
+    
     with st.spinner("سالم يحلل البيانات..."):
         vs = process_data(tuple(uploaded))
         if vs:
             llm = ChatOpenAI(model_name="gpt-3.5-turbo", temperature=0, openai_api_key=api_key)
             memory = ConversationBufferMemory(memory_key="chat_history", output_key="answer", return_messages=True)
             
-            # برومبت سالم
             template = "أنت سالم، خبير سلامة في محطة جازان. أجب من النصوص فقط.\nسياق: {context}\nسؤال: {question}\nإجابة:"
             
             chain = ConversationalRetrievalChain.from_llm(
@@ -111,4 +112,4 @@ if uploaded:
                     st.write(res["answer"])
                     st.session_state.chat_history.append({"role": "assistant", "content": res["answer"]})
 else:
-    st.info("ارفع ملفات السلامة لتبدأ.")
+    st.info("👋 ارفع ملفات السلامة لتبدأ المحادثة مع سالم.")
