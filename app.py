@@ -1,185 +1,285 @@
 import streamlit as st
 import pandas as pd
-from pypdf import PdfReader
+import pdfplumber
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_community.vectorstores import FAISS
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
+from langchain.chains import ConversationalRetrievalChain
+from langchain.memory import ConversationBufferMemory
+from langchain.prompts import PromptTemplate
+import arabic_reshaper
+from bidi.algorithm import get_display
 
-st.set_page_config(page_title="سالم - مساعد السلامة الذكي", page_icon="🛡️")
+# --- إعدادات الصفحة ---
+st.set_page_config(
+    page_title="سالم - مساعد السلامة الذكي (GPC)", 
+    page_icon="🛡️",
+    layout="wide"
+)
 
-# 🔥 العنوان
+# --- واجهة المستخدم الرسومية العربي (تحسين العرض) ---
+st.markdown("""
+<style>
+    .stTable {direction: rtl; text-align: right;}
+    .stDataFrame {direction: rtl; text-align: right;}
+    [data-testid="stChatMessage"] {direction: rtl; text-align: right;}
+    h1, h2, h3, p {direction: rtl; text-align: right;}
+</style>
+""", unsafe_allow_html=True)
+
+# --- العنوان والشعار ---
 st.title("🛡️ مساعد السلامة الذكي (سالم)")
-st.markdown("### ⚠️ نسخة تجريبية - إدارة محطة طاقة جازان")
+st.markdown("### 🏭 إدارة سلامة محطة طاقة جازان | نسخة مطورة 1.1")
 
-# التحقق من المفتاح
+# --- التحقق من المفتاح ---
 if "OPENAI_API_KEY" not in st.secrets:
-    st.error("يرجى إضافة المفتاح في Secrets")
+    st.error("⚠️ يرجى إضافة OPENAI_API_KEY في ملف Secrets")
     st.stop()
 
 api_key = st.secrets["OPENAI_API_KEY"]
 
-# ===============================
-with st.sidebar:
-    st.header("📂 مستودع البيانات")
-    uploaded_files = st.file_uploader(
-        "ارفع ملفات PDF أو Excel",
-        type=['pdf', 'xlsx'],
-        accept_multiple_files=True
-    )
+# ==========================================
+# --- 🧠 وظائف المعالجة الأساسية ---
+# ==========================================
 
-# ===============================
-# 📊 Excel
-def smart_excel_query(df, query):
-    query = query.lower()
+# 1. تحسين معالجة النصوص العربية
+def reshape_arabic(text):
+    """يصلح النصوص العربية المقطعة أو المقلوبة من PDF."""
+    if not text:
+        return ""
+    # إصلاح التشكيل والترابط
+    reshaped_text = arabic_reshaper.reshape(text)
+    # إصلاح الاتجاه (RTL)
+    bidi_text = get_display(reshaped_text)
+    return bidi_text
 
-    try:
-        if "عدد" in query:
-            return f"عدد الصفوف: {len(df)}"
+# 2. تحسين استخراج النصوص من PDF (استخدام pdfplumber)
+def extract_text_advanced(file):
+    all_documents = []
+    file_name = file.name
+    
+    with pdfplumber.open(file) as pdf:
+        for i, page in enumerate(pdf.pages):
+            # استخراج النص الخام
+            raw_text = page.extract_text(layout=True)
+            
+            # محاولة استخراج الجداول (ميزة جديدة قوية)
+            tables = page.extract_tables()
+            table_text = ""
+            if tables:
+                for table in tables:
+                    # تحويل الجدول لنص مفصل
+                    table_text += "\n---جدول بيانات---\n"
+                    table_text += pd.DataFrame(table).to_string(index=False, header=False)
+                    table_text += "\n----------------\n"
 
-        for col in df.columns:
-            for value in df[col].astype(str):
-                if value.lower() in query:
-                    row = df[df[col].astype(str) == value]
-                    return row.to_string(index=False)
-
-    except:
-        pass
-
-    return None
-
-# ===============================
-# ⚡ تجهيز البيانات
-@st.cache_resource
-def process_files(files):
-    excel_data = []
-    documents = []
-
-    for file in files:
-        try:
-            if file.name.endswith('.pdf'):
-                reader = PdfReader(file)
-
-                for i, page in enumerate(reader.pages):
-                    text = page.extract_text()
-                    if text:
-                        documents.append(
-                            Document(
-                                page_content=text,
-                                metadata={
-                                    "source": f"{file.name} - صفحة {i+1}"
-                                }
-                            )
-                        )
-
-            elif file.name.endswith('.xlsx'):
-                df = pd.read_excel(file)
-                excel_data.append(df)
-
-        except:
-            continue
-
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=800,
-        chunk_overlap=150
-    )
-
-    split_docs = text_splitter.split_documents(documents)
-
-    embeddings = OpenAIEmbeddings(openai_api_key=api_key)
-
-    vectorstore = FAISS.from_documents(
-        documents=split_docs,
-        embedding=embeddings
-    )
-
-    return vectorstore, excel_data
-
-# ===============================
-
-if uploaded_files:
-    with st.spinner("سالم يحلل الملفات..."):
-        vectorstore, excel_data = process_files(tuple(uploaded_files))
-
-    st.success("سالم جاهز!")
-
-    user_query = st.chat_input("اسأل سالم...")
-
-    if user_query:
-        with st.chat_message("user"):
-            st.write(user_query)
-
-        with st.chat_message("assistant"):
-
-            llm = ChatOpenAI(
-                model_name="gpt-3.5-turbo",
-                openai_api_key=api_key
-            )
-
-            answer = ""
-            sources = []
-
-            # ===============================
-            # 📊 Excel
-            if excel_data:
-                for df in excel_data:
-                    result = smart_excel_query(df, user_query)
-                    if result:
-                        answer = result
-                        break
-
-            # ===============================
-            # 📄 PDF (بحث احترافي)
-            if not answer:
-                docs = vectorstore.max_marginal_relevance_search(
-                    user_query,
-                    k=8,
-                    fetch_k=20
+            final_page_content = f"{raw_text or ''}\n{table_text}"
+            
+            if final_page_content.strip():
+                # ملاحظة: إذا كان الـ PDF عربي أصلي سليم، 
+                # قد لا نحتاج reshaping. نستخدم النص الخام مباشرة.
+                # نترك التصحيح فقط إذا كانت النصوص مقلوبة.
+                all_documents.append(
+                    Document(
+                        page_content=final_page_content, # أو reshape_arabic(final_page_content)
+                        metadata={"source": f"{file_name} - صفحة {i+1}"}
+                    )
                 )
+    return all_documents
 
-                context = ""
-                for i, doc in enumerate(docs):
-                    src = doc.metadata.get("source", "غير معروف")
-                    context += f"\n--- مصدر: {src} ---\n"
-                    context += doc.page_content + "\n"
-                    sources.append(src)
+# 3. معالجة Excel المتقدمة (دمجها مع RAG)
+def extract_excel_as_documents(file):
+    documents = []
+    # قراءة كل الشيتات
+    excel_file = pd.ExcelFile(file)
+    for sheet_name in excel_file.sheet_names:
+        df = pd.read_excel(file, sheet_name=sheet_name)
+        
+        # تحويل كل صف لوثيقة مستقلة
+        # هذا يسمح للـ LLM بفهم سياق كل سجل (مثلاً: سجل حادث)
+        for index, row in df.iterrows():
+            # تحويل الصف لنص مقروء
+            row_content = f"--- بيانات سجل (شيت: {sheet_name}) ---\n"
+            for col in df.columns:
+                row_content += f"{col}: {row[col]}\n"
+            
+            documents.append(
+                Document(
+                    page_content=row_content,
+                    metadata={
+                        "source": f"{file.name} - {sheet_name}",
+                        "row_index": index
+                    }
+                )
+            )
+    return documents
 
-                if not context.strip():
-                    st.write("لا توجد معلومات كافية")
-                    st.stop()
+# 4. بناء مخزن المتجهات (Vector Store)
+@st.cache_resource
+def build_vector_store(uploaded_files):
+    all_docs = []
+    
+    for file in uploaded_files:
+        if file.name.endswith('.pdf'):
+            st.write(f"⏳ جاري معالجة PDF: {file.name}...")
+            all_docs.extend(extract_text_advanced(file))
+        elif file.name.endswith('.xlsx'):
+            st.write(f"⏳ جاري معالجة Excel: {file.name}...")
+            all_docs.extend(extract_excel_as_documents(file))
+            
+    if not all_docs:
+        return None
 
-                # 🔥 برومبت احترافي (فهم + اقتباس + تنظيم)
-                prompt = f"""
-أنت مساعد سلامة مهنية ذكي.
+    # تقسيم النصوص
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=1000,
+        chunk_overlap=200
+    )
+    splits = text_splitter.split_documents(all_docs)
+    
+    # حساب Embeddings وإنشاء المخزن
+    embeddings = OpenAIEmbeddings(openai_api_key=api_key)
+    vectorstore = FAISS.from_documents(splits, embedding=embeddings)
+    
+    return vectorstore
 
-مهم:
-- افهم السؤال جيداً
-- استخرج الإجابة من النص
-- اقتبس الجمل المهمة
-- نظّم الإجابة بشكل واضح (نقاط)
-- لا تخلط النصوص بشكل عشوائي
-- لا تخترع معلومات
+# ==========================================
+# --- 🏗️ بناء سلسلة المحادثة (Chain) ---
+# ==========================================
 
-النص:
+def get_conversational_chain(vectorstore):
+    # استخدام موديل أحدث (اختياري gpt-4-turbo)
+    llm = ChatOpenAI(model_name="gpt-3.5-turbo-0125", temperature=0, openai_api_key=api_key)
+    
+    # 1. الذاكرة (للاحتفاظ بسياق الحوار)
+    memory = ConversationBufferMemory(
+        memory_key="chat_history",
+        output_key="answer", # مهمة جداً لإرجاع الإجابة فقط للذاكرة
+        return_messages=True
+    )
+    
+    # 2. برومبت مهندس خصيصاً لسلامة جازان (تحسين)
+    qa_prompt_template = """
+أنت "سالم"، مساعد السلامة المهنية الذكي الرسمي لمحطة طاقة جازان (GPC).
+مهمتك هي تقديم إجابات دقيقة وموثوقة بناءً على المستندات المرفقة فقط.
+
+القواعد الصارمة:
+1. الشخصية: حافظ على نبرة مهنية، رسمية، ومساعدة. ابدأ بترحيب مهذب عند الحاجة.
+2. التحذيرات أولاً: إذا كان السؤال يتعلق بخطر أو إجراء سلامة حرج، ابدأ إجابتك بتحذير واضح ومميز بـ *[تحذير]*.
+3. التوثيق: اعتمد كلياً على النصوص المقدمة (Context). لا تخترع معلومات، لا تستخدم معلومات خارجية.
+4. الخطوات: عند شرح إجراءات، استخدم القوائم الرقمية الممنهجة.
+5. عدم المعرفة: إذا لم تجد الإجابة في النص، قل بوضوح: "المعذرة، لا تتوفر معلومات حول هذا الموضوع في أدلة المحطة المتوفرة حالياً". لا تحاول التخمين.
+6. المصطلحات: استخدم المصطلحات الفنية كما هي في المستندات (عربي/إنجليزي).
+
+النصوص المرجعية (Context):
+----------------
 {context}
+----------------
 
-السؤال:
-{user_query}
+سؤال المستخدم: {question}
 
-الإجابة:
+الإجابة المعتمدة (تأكد من تطبيق القواعد):
 """
+    QA_PROMPT = PromptTemplate(
+        template=qa_prompt_template, input_variables=["context", "question"]
+    )
 
-                response = llm.invoke(prompt)
-                answer = response.content
+    # 3. إنشاء السلسلة
+    chain = ConversationalRetrievalChain.from_llm(
+        llm=llm,
+        retriever=vectorstore.as_retriever(search_type="mmr", search_kwargs={'k': 8, 'fetch_k': 20}),
+        memory=memory,
+        return_source_documents=True,
+        combine_docs_chain_kwargs={"prompt": QA_PROMPT} # تمرير البرومبت الخاص بنا
+    )
+    
+    return chain
 
-            # عرض الإجابة
-            st.write(answer)
+# ==========================================
+# --- 💻 واجهة المستخدم والتفاعل ---
+# ==========================================
 
-            # عرض المصادر
-            if sources:
-                st.markdown("### 📍 المصادر:")
-                for s in sorted(set(sources)):
-                    st.write(f"- {s}")
+# الشريط الجانبي (Sidebar)
+with st.sidebar:
+    st.header("📂 إدارة مستودع البيانات")
+    
+    # زر إعادة تعيين الذاكرة
+    if st.button("🔄 بدء محادثة جديدة (مسح الذاكرة)"):
+        st.session_state.chat_history = []
+        st.session_state.chain_memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+        st.rerun()
+        
+    st.markdown("---")
+    
+    uploaded_files = st.file_uploader(
+        "ارفع أدلة السلامة وسجلات الحوادث (PDF/Excel)",
+        type=['pdf', 'xlsx'],
+        accept_multiple_files=True,
+        key="uploader"
+    )
+
+# تهيئة Session State للذاكرة والمحادثة
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
+
+# --- المعالجة عند رفع الملفات ---
+if uploaded_files:
+    # تهيئة Vector Store إذا لم يكن موجوداً
+    if "vectorstore" not in st.session_state:
+        with st.spinner("🧠 سالم يقوم بتحليل وهيكلة الأدلة... قد يستغرق هذا دقيقة..."):
+            vs = build_vector_store(uploaded_files)
+            if vs:
+                st.session_state.vectorstore = vs
+                # إنشاء السلسلة مرة واحدة
+                st.session_state.conversation_chain = get_conversational_chain(vs)
+                st.success("✅ تم الانتهاء من فهرسة الأدلة. سالم جاهز للأسئلة!")
+            else:
+                st.error("❌ فشل معالجة الملفات. تأكد من محتواها.")
+
+# --- عرض المحادثة السابقة ---
+for message in st.session_state.chat_history:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
+
+# --- حقل الإدخال والاستجابة ---
+user_query = st.chat_input("تحدث مع سالم حول إجراءات السلامة...")
+
+if user_query:
+    # 1. عرض سؤال المستخدم
+    st.chat_message("user").write(user_query)
+    st.session_state.chat_history.append({"role": "user", "content": user_query})
+
+    if "conversation_chain" not in st.session_state:
+        with st.chat_message("assistant"):
+            st.error("⚠️ يرجى رفع ملفات البيانات أولاً ليبدأ سالم العمل.")
+    else:
+        # 2. الحصول على الإجابة من سالم
+        with st.chat_message("assistant"):
+            with st.spinner("🤔 جاري البحث في الأدلة..."):
+                response = st.session_state.conversation_chain.invoke({"question": user_query})
+                
+                answer = response["answer"]
+                source_docs = response["source_documents"]
+
+                # عرض الإجابة
+                st.markdown(answer)
+                st.session_state.chat_history.append({"role": "assistant", "content": answer})
+
+                # 3. عرض المصادر بشكل منسق (اختياري)
+                if source_docs:
+                    with st.expander("📍 تفاصيل المصادر المعتمدة"):
+                        unique_sources = set()
+                        for doc in source_docs:
+                            # عرض جزء من النص المقتبس + المصدر
+                            src = doc.metadata.get("source", "غير معروف")
+                            if src not in unique_sources:
+                                st.markdown(f"*- {src}*")
+                                unique_sources.add(src)
+                        
+                            # (اختياري) عرض الاقتباس الفعلي
+                            # st.caption(f"... {doc.page_content[:150]} ...")
 
 else:
-    st.info("ارفع ملفاتك لتبدأ")
+    if not uploaded_files:
+        st.info("👋 مرحبًا، أنا سالم. للبدء، يرجى رفع أدلة السلامة الخاصة بمحطة جازان عبر الشريط الجانبي.")
