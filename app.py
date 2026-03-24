@@ -8,14 +8,16 @@ from langchain_core.documents import Document
 
 st.set_page_config(page_title="سالم - مساعد السلامة الذكي", page_icon="🛡️")
 
+# 🔥 عنوان + النسخة التجريبية
+st.title("🛡️ مساعد السلامة الذكي (سالم)")
+st.markdown("### ⚠️ نسخة تجريبية - إدارة محطة طاقة جازان")
+
 # التحقق من المفتاح
 if "OPENAI_API_KEY" not in st.secrets:
     st.error("يرجى إضافة المفتاح في Secrets")
     st.stop()
 
 api_key = st.secrets["OPENAI_API_KEY"]
-
-st.title("🛡️ مساعد السلامة الذكي (سالم)")
 
 with st.sidebar:
     st.header("📂 مستودع البيانات")
@@ -39,16 +41,6 @@ def smart_excel_query(df, query):
                 if value.lower() in query:
                     row = df[df[col].astype(str) == value]
                     return row.to_string(index=False)
-
-        if "أكبر" in query or "اعلى" in query:
-            numeric_cols = df.select_dtypes(include='number')
-            if not numeric_cols.empty:
-                return numeric_cols.max().to_string()
-
-        if "أصغر" in query or "اقل" in query:
-            numeric_cols = df.select_dtypes(include='number')
-            if not numeric_cols.empty:
-                return numeric_cols.min().to_string()
 
     except:
         pass
@@ -133,38 +125,42 @@ if uploaded_files:
                         break
 
             # ===============================
-            # 📄 PDF
+            # 📄 PDF (اقتباس حرفي)
             if not answer:
-                docs = vectorstore.similarity_search(user_query, k=8)
+                docs = vectorstore.similarity_search(user_query, k=10)
 
                 context = ""
-                for doc in docs:
-                    context += doc.page_content + "\n\n"
+                for i, doc in enumerate(docs):
+                    context += f"\n--- مقطع {i+1} ---\n"
+                    context += doc.page_content + "\n"
                     sources.append(doc.metadata.get("source", "غير معروف"))
 
-                # لو ما فيه بيانات
                 if not context.strip():
-                    st.write("لا توجد معلومات كافية في الملفات")
+                    st.write("لا توجد معلومات كافية")
                     st.stop()
 
-                # 🔥 البرومبت الجديد (الأهم)
+                # 🔥 برومبت الاقتباس
                 prompt = f"""
-أنت مساعد سلامة مهنية ذكي ودقيق.
+أنت مساعد سلامة مهنية.
 
 مهم جداً:
-- اقرأ المعلومات بعناية
-- الإجابة موجودة غالباً في النص
-- لا تقل "غير موجود" إلا إذا متأكد 100%
-- استخرج الإجابة من النص مباشرة
-- إذا كانت قائمة، اكتبها كنقاط
+- الإجابة موجودة داخل النص
+- انسخ الإجابة حرفياً من النص
+- لا تشرح
+- لا تختصر
+- لا تغيّر الكلمات
+- فقط اقتباس مباشر
 
-المعلومات:
+إذا لم تجد نص مناسب قل:
+"لا يوجد نص مطابق في البيانات"
+
+النص:
 {context}
 
 السؤال:
 {user_query}
 
-الإجابة:
+الإجابة (اقتباس حرفي):
 """
 
                 response = llm.invoke(prompt)
