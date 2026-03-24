@@ -1,1 +1,11 @@
-pip install streamlit pandas langchain langchain-openai langchain-community faiss-cpu pypdf pdfplumber arabic-reshaper python-bidi
+streamlit
+pandas
+openpyxl
+pdfplumber
+langchain
+langchain-openai
+langchain-community
+faiss-cpu
+arabic-reshaper
+python-bidi
+pypdf
