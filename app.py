@@ -4,7 +4,7 @@ from pypdf import PdfReader
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_community.vectorstores import FAISS
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_core.documents import Document  # ✅ تم الإصلاح هنا
+from langchain_core.documents import Document
 
 st.set_page_config(page_title="سالم - مساعد السلامة الذكي", page_icon="🛡️")
 
@@ -26,7 +26,7 @@ with st.sidebar:
     )
 
 # ===============================
-# 📊 دالة Excel الذكية
+# 📊 Excel
 def smart_excel_query(df, query):
     query = query.lower()
 
@@ -56,7 +56,7 @@ def smart_excel_query(df, query):
     return None
 
 # ===============================
-# ⚡ تجهيز البيانات + المصادر
+# ⚡ تجهيز البيانات
 @st.cache_resource
 def process_files(files):
     excel_data = []
@@ -83,7 +83,6 @@ def process_files(files):
         except:
             continue
 
-    # تقسيم النصوص
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=800,
         chunk_overlap=150
@@ -125,7 +124,7 @@ if uploaded_files:
             sources = []
 
             # ===============================
-            # 📊 Excel أولًا
+            # 📊 Excel
             if excel_data:
                 for df in excel_data:
                     result = smart_excel_query(df, user_query)
@@ -134,24 +133,30 @@ if uploaded_files:
                         break
 
             # ===============================
-            # 📄 PDF + مصادر
+            # 📄 PDF
             if not answer:
-                docs = vectorstore.similarity_search(user_query, k=5)
+                docs = vectorstore.similarity_search(user_query, k=8)
 
                 context = ""
                 for doc in docs:
                     context += doc.page_content + "\n\n"
                     sources.append(doc.metadata.get("source", "غير معروف"))
 
+                # لو ما فيه بيانات
+                if not context.strip():
+                    st.write("لا توجد معلومات كافية في الملفات")
+                    st.stop()
+
+                # 🔥 البرومبت الجديد (الأهم)
                 prompt = f"""
 أنت مساعد سلامة مهنية ذكي ودقيق.
 
-تعليمات:
-- أجب فقط من المعلومات
-- لا تخمّن
-- إذا لم تجد الإجابة قل: "غير موجود في البيانات"
-- اذكر التفاصيل بوضوح
-- نظّم الإجابة
+مهم جداً:
+- اقرأ المعلومات بعناية
+- الإجابة موجودة غالباً في النص
+- لا تقل "غير موجود" إلا إذا متأكد 100%
+- استخرج الإجابة من النص مباشرة
+- إذا كانت قائمة، اكتبها كنقاط
 
 المعلومات:
 {context}
