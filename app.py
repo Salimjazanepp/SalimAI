@@ -1,9 +1,9 @@
 import streamlit as st
 import os
 import pandas as pd
+from pypdf import PdfReader
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
-from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.chains.conversational_retrieval.base import ConversationalRetrievalChain
 from langchain.memory import ConversationBufferMemory
@@ -39,15 +39,34 @@ def load_data():
     for file in os.listdir(data_path):
         file_path = os.path.join(data_path, file)
 
-        # 📄 PDF
+        # 📄 PDF (مع فك التشفير)
         if file.endswith(".pdf"):
             try:
-                loader = PyPDFLoader(file_path)
-                documents.extend(loader.load())
+                reader = PdfReader(file_path)
+
+                if reader.is_encrypted:
+                    try:
+                        reader.decrypt("")
+                    except:
+                        st.warning(f"🔒 الملف مشفر ولا يمكن قراءته: {file}")
+                        continue
+
+                text = ""
+                for page in reader.pages:
+                    text += page.extract_text() or ""
+
+                if text.strip():
+                    documents.append(
+                        Document(
+                            page_content=text,
+                            metadata={"source": file}
+                        )
+                    )
+
             except Exception as e:
                 st.warning(f"تعذر تحميل PDF {file}: {e}")
 
-        # 📊 Excel (بدون unstructured)
+        # 📊 Excel (بديل مستقر بدون unstructured)
         elif file.endswith(".xlsx") or file.endswith(".xls"):
             try:
                 df = pd.read_excel(file_path)
@@ -68,11 +87,15 @@ def load_data():
         chunk_size=1000,
         chunk_overlap=100
     )
+
     texts = splitter.split_documents(documents)
 
-    embeddings = OpenAIEmbeddings(api_key=openai_api_key)
+    embeddings = OpenAIEmbeddings(
+        openai_api_key=openai_api_key
+    )
 
     vectorstore = FAISS.from_documents(texts, embeddings)
+
     return vectorstore
 
 # ------------------------
@@ -105,8 +128,8 @@ if vectorstore:
 
         qa_chain = ConversationalRetrievalChain.from_llm(
             llm=ChatOpenAI(
-                model="gpt-3.5-turbo",
-                api_key=openai_api_key
+                model_name="gpt-3.5-turbo",
+                openai_api_key=openai_api_key
             ),
             retriever=vectorstore.as_retriever(),
             memory=memory
