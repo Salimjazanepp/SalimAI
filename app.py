@@ -1,115 +1,91 @@
-import subprocess
-import sys
-import os
-
-# --- 🚀 المرحلة 1: تثبيت المكتبات إجبارياً ---
-def install_packages():
-    packages = [
-        "langchain", "langchain-openai", "langchain-community", 
-        "faiss-cpu", "pdfplumber", "arabic-reshaper", 
-        "python-bidi", "pypdf", "openpyxl", "langchain-core"
-    ]
-    for package in packages:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
-
-# تنفيذ التثبيت فوراً عند التشغيل
-if "INSTALLED_SUCCESS" not in os.environ:
-    install_packages()
-    os.environ["INSTALLED_SUCCESS"] = "True"
-
-# --- 🛡️ المرحلة 2: استيراد المكتبات الأساسية فقط ---
 import streamlit as st
-import pandas as pd
+import os
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_community.vectorstores import FAISS
+from langchain_community.document_loaders import PyPDFLoader, UnstructuredExcelLoader
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.chains import ConversationalRetrievalChain
+from langchain.memory import ConversationBufferMemory
 
-# --- إعدادات واجهة سالم ---
-st.set_page_config(page_title="سالم - مساعد السلامة الذكي", page_icon="🛡️", layout="wide")
+# إعداد واجهة التطبيق بالمسميات الجديدة
+st.set_page_config(page_title="مساعد السلامة الافتراضي (سالم)", page_icon="🛡️")
+st.title("مساعد السلامة الافتراضي (سالم) 🛡️")
+st.subheader("إدارة محطة طاقة جازان 🏭")
 
-st.title("🛡️ مساعد السلامة الذكي (سالم)")
-st.markdown("### 🏭 إدارة سلامة محطة طاقة جازان")
-
-# التحقق من مفتاح API
-if "OPENAI_API_KEY" not in st.secrets:
-    st.error("⚠️ خطأ: أضف OPENAI_API_KEY في Secrets")
+# الحصول على المفتاح من Secrets
+if "OPENAI_API_KEY" in st.secrets:
+    openai_api_key = st.secrets["OPENAI_API_KEY"]
+else:
+    st.error("⚠️ خطأ: لم يتم العثور على مفتاح OpenAI في إعدادات Secrets.")
     st.stop()
 
-api_key = st.secrets["OPENAI_API_KEY"]
-
-# --- 🧠 المرحلة 3: استدعاء مكتبات الذكاء الاصطناعي "عند الحاجة فقط" ---
-# نقلنا الـ imports هنا لضمان أنها لن تعمل إلا بعد التثبيت أعلاه
-def get_ai_tools():
-    from langchain_openai import OpenAIEmbeddings, ChatOpenAI
-    from langchain_community.vectorstores import FAISS
-    from langchain_text_splitters import RecursiveCharacterTextSplitter
-    from langchain_core.documents import Document
-    from langchain.chains import ConversationalRetrievalChain
-    from langchain.memory import ConversationBufferMemory
-    from langchain.prompts import PromptTemplate
-    import pdfplumber
-    return OpenAIEmbeddings, ChatOpenAI, FAISS, RecursiveCharacterTextSplitter, Document, ConversationalRetrievalChain, ConversationBufferMemory, PromptTemplate, pdfplumber
-
-# --- معالجة الملفات ---
+# دالة لتحميل البيانات من مجلد data
 @st.cache_resource
-def process_data(files):
-    # استدعاء الأدوات
-    OpenAIEmbeddings, ChatOpenAI, FAISS, RecursiveCharacterTextSplitter, Document, _, _, _, pdfplumber = get_ai_tools()
+def load_data():
+    data_path = "data/"
+    documents = []
     
-    docs = []
-    for f in files:
-        if f.name.endswith('.pdf'):
-            with pdfplumber.open(f) as pdf:
-                for i, page in enumerate(pdf.pages):
-                    text = page.extract_text()
-                    if text:
-                        docs.append(Document(page_content=text, metadata={"source": f"{f.name} (ص{i+1})"}))
-        elif f.name.endswith('.xlsx'):
-            df = pd.read_excel(f)
-            for i, row in df.iterrows():
-                content = " | ".join([f"{c}: {v}" for c, v in row.items()])
-                docs.append(Document(page_content=content, metadata={"source": f"{f.name} (سجل{i+1})"}))
-    
-    if not docs: return None
-    splits = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100).split_documents(docs)
-    return FAISS.from_documents(splits, OpenAIEmbeddings(openai_api_key=api_key))
+    if not os.path.exists(data_path):
+        return None
 
-# --- المحادثة ---
-with st.sidebar:
-    st.header("📂 المستندات")
-    uploaded = st.file_uploader("ارفع الملفات", type=['pdf', 'xlsx'], accept_multiple_files=True)
-    if st.button("🔄 مسح الذاكرة"):
-        st.session_state.chat_history = []
-        st.rerun()
-
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []
-
-if uploaded:
-    # استدعاء الأدوات اللازمة للمحادثة
-    _, ChatOpenAI, _, _, _, ConversationalRetrievalChain, ConversationBufferMemory, PromptTemplate, _ = get_ai_tools()
-    
-    with st.spinner("سالم يحلل البيانات..."):
-        vs = process_data(tuple(uploaded))
-        if vs:
-            llm = ChatOpenAI(model_name="gpt-3.5-turbo", temperature=0, openai_api_key=api_key)
-            memory = ConversationBufferMemory(memory_key="chat_history", output_key="answer", return_messages=True)
+    for file in os.listdir(data_path):
+        file_path = os.path.join(data_path, file)
+        if file.endswith(".pdf"):
+            try:
+                loader = PyPDFLoader(file_path)
+                documents.extend(loader.load())
+            except Exception as e:
+                st.warning(f"تعذر تحميل الملف {file}: {e}")
+        elif file.endswith(".xlsx") or file.endswith(".xls"):
+            try:
+                loader = UnstructuredExcelLoader(file_path)
+                documents.extend(loader.load())
+            except Exception as e:
+                st.warning(f"تعذر تحميل الملف {file}: {e}")
             
-            template = "أنت سالم، خبير سلامة في محطة جازان. أجب من النصوص فقط.\nسياق: {context}\nسؤال: {question}\nإجابة:"
-            
-            chain = ConversationalRetrievalChain.from_llm(
-                llm=llm, retriever=vs.as_retriever(), memory=memory, return_source_documents=True,
-                combine_docs_chain_kwargs={"prompt": PromptTemplate(template=template, input_variables=["context", "question"])}
-            )
+    if not documents:
+        return None
 
-            for m in st.session_state.chat_history:
-                st.chat_message(m["role"]).write(m["content"])
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+    texts = text_splitter.split_documents(documents)
+    
+    embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
+    vectorstore = FAISS.from_documents(texts, embeddings)
+    return vectorstore
 
-            query = st.chat_input("اسأل سالم...")
-            if query:
-                st.chat_message("user").write(query)
-                st.session_state.chat_history.append({"role": "user", "content": query})
-                
-                with st.chat_message("assistant"):
-                    res = chain.invoke({"question": query})
-                    st.write(res["answer"])
-                    st.session_state.chat_history.append({"role": "assistant", "content": res["answer"]})
+# تحميل البيانات
+vectorstore = load_data()
+
+if vectorstore:
+    st.success("✅ تم تحميل قاعدة بيانات السلامة بنجاح! سالم جاهز لمساعدتك.")
+    
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
+    if prompt := st.chat_input("اسأل سالم عن إجراءات السلامة في محطة جازان..."):
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+
+        # إعداد سلسلة المحادثة
+        memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+        qa_chain = ConversationalRetrievalChain.from_llm(
+            llm=ChatOpenAI(model_name="gpt-3.5-turbo", openai_api_key=openai_api_key),
+            retriever=vectorstore.as_retriever(),
+            memory=memory
+        )
+
+        with st.chat_message("assistant"):
+            try:
+                response = qa_chain.invoke({"question": prompt})
+                full_response = response['answer']
+                st.markdown(full_response)
+                st.session_state.messages.append({"role": "assistant", "content": full_response})
+            except Exception as e:
+                st.error(f"حدث خطأ أثناء معالجة الطلب: {e}")
 else:
-    st.info("👋 ارفع ملفات السلامة لتبدأ المحادثة مع سالم.")
+    st.info("👋 مرحباً بك. يرجى التأكد من وجود ملفات السلامة في مجلد data ليتوفر سالم للخدمة.")
