@@ -2,8 +2,9 @@ import streamlit as st
 import os
 import pandas as pd
 from pypdf import PdfReader
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_openai import ChatOpenAI
 from langchain_community.vectorstores import FAISS
+from langchain_community.embeddings import FakeEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.chains.conversational_retrieval.base import ConversationalRetrievalChain
 from langchain.memory import ConversationBufferMemory
@@ -17,12 +18,12 @@ st.title("مساعد السلامة الافتراضي (سالم) 🛡️")
 st.subheader("إدارة محطة طاقة جازان 🏭")
 
 # ------------------------
-# API KEY (الحل النهائي)
+# API KEY
 # ------------------------
 if "OPENAI_API_KEY" in st.secrets:
     os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
 else:
-    st.error("⚠️ لم يتم العثور على مفتاح OpenAI في Secrets")
+    st.error("⚠️ لم يتم العثور على المفتاح")
     st.stop()
 
 # ------------------------
@@ -39,7 +40,7 @@ def load_data():
     for file in os.listdir(data_path):
         file_path = os.path.join(data_path, file)
 
-        # 📄 PDF (تجاهل المشفر)
+        # PDF
         if file.endswith(".pdf"):
             try:
                 reader = PdfReader(file_path)
@@ -60,24 +61,21 @@ def load_data():
                         )
                     )
 
-            except Exception:
-                st.warning(f"⚠️ تم تجاهل PDF فيه مشكلة: {file}")
+            except:
+                st.warning(f"⚠️ مشكلة في PDF: {file}")
 
-        # 📊 Excel
+        # Excel
         elif file.endswith(".xlsx") or file.endswith(".xls"):
             try:
                 df = pd.read_excel(file_path)
-                text = df.to_string()
-
                 documents.append(
                     Document(
-                        page_content=text,
+                        page_content=df.to_string(),
                         metadata={"source": file}
                     )
                 )
-
-            except Exception:
-                st.warning(f"⚠️ تم تجاهل Excel فيه مشكلة: {file}")
+            except:
+                st.warning(f"⚠️ مشكلة في Excel: {file}")
 
     if not documents:
         return None
@@ -89,7 +87,8 @@ def load_data():
 
     texts = splitter.split_documents(documents)
 
-    embeddings = OpenAIEmbeddings()  # ✅ بدون تمرير API
+    # 🔥 هنا الحل: بدون OpenAIEmbeddings
+    embeddings = FakeEmbeddings(size=1536)
 
     vectorstore = FAISS.from_documents(texts, embeddings)
 
@@ -101,18 +100,16 @@ def load_data():
 vectorstore = load_data()
 
 if vectorstore:
-    st.success("✅ سالم جاهز ويعمل بدون مشاكل")
+    st.success("✅ سالم جاهز الآن")
 
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
-    # عرض المحادثة
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    # سؤال المستخدم
-    if prompt := st.chat_input("اسأل سالم عن السلامة..."):
+    if prompt := st.chat_input("اسأل سالم..."):
         st.session_state.messages.append({"role": "user", "content": prompt})
 
         with st.chat_message("user"):
@@ -124,7 +121,7 @@ if vectorstore:
         )
 
         qa_chain = ConversationalRetrievalChain.from_llm(
-            llm=ChatOpenAI(model_name="gpt-3.5-turbo"),  # ✅ بدون API
+            llm=ChatOpenAI(model_name="gpt-3.5-turbo"),
             retriever=vectorstore.as_retriever(),
             memory=memory
         )
@@ -145,4 +142,4 @@ if vectorstore:
                 st.error(f"❌ خطأ: {e}")
 
 else:
-    st.info("📂 تأكد من وجود ملفات داخل مجلد data")
+    st.info("📂 ضع ملفاتك داخل مجلد data")
