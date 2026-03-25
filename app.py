@@ -2,26 +2,26 @@ import streamlit as st
 import os
 import pandas as pd
 from pypdf import PdfReader
-from openai import OpenAI
+import openai
 
 # ------------------------
-# واجهة التطبيق
-# ------------------------
-st.set_page_config(page_title="مساعد السلامة الافتراضي (سالم)", page_icon="🛡️")
-st.title("مساعد السلامة الافتراضي (سالم) 🛡️")
-st.subheader("إدارة محطة طاقة جازان 🏭")
-
-# ------------------------
-# API KEY
+# إعداد المفتاح (الطريقة الصحيحة)
 # ------------------------
 if "OPENAI_API_KEY" not in st.secrets:
     st.error("⚠️ لم يتم العثور على مفتاح OpenAI")
     st.stop()
 
-client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+openai.api_key = st.secrets["OPENAI_API_KEY"]
 
 # ------------------------
-# تحميل البيانات
+# واجهة التطبيق
+# ------------------------
+st.set_page_config(page_title="سالم", page_icon="🛡️")
+st.title("🛡️ مساعد السلامة الافتراضي (سالم)")
+st.subheader("إدارة محطة طاقة جازان")
+
+# ------------------------
+# تحميل البيانات (مع فك التشفير)
 # ------------------------
 @st.cache_resource
 def load_data():
@@ -32,40 +32,49 @@ def load_data():
         return ""
 
     for file in os.listdir(data_path):
-        file_path = os.path.join(data_path, file)
+        path = os.path.join(data_path, file)
 
-        # PDF
+        # 📄 PDF
         if file.endswith(".pdf"):
             try:
-                reader = PdfReader(file_path)
+                reader = PdfReader(path)
 
+                # 🔥 فك التشفير (حتى لو بدون كلمة)
                 if reader.is_encrypted:
-                    st.warning(f"⚠️ تم تجاهل ملف مشفر: {file}")
-                    continue
+                    try:
+                        reader.decrypt("")
+                    except:
+                        try:
+                            reader.decrypt("1234")
+                        except:
+                            st.warning(f"⚠️ لم نستطع فك التشفير: {file}")
+                            continue
 
                 for page in reader.pages:
-                    all_text += page.extract_text() or ""
+                    text = page.extract_text()
+                    if text:
+                        all_text += text + "\n"
 
-            except:
-                st.warning(f"⚠️ مشكلة في PDF: {file}")
+            except Exception as e:
+                st.warning(f"⚠️ خطأ في PDF: {file}")
 
-        # Excel
+        # 📊 Excel
         elif file.endswith(".xlsx") or file.endswith(".xls"):
             try:
-                df = pd.read_excel(file_path)
-                all_text += df.to_string()
+                df = pd.read_excel(path)
+                all_text += df.to_string() + "\n"
             except:
-                st.warning(f"⚠️ مشكلة في Excel: {file}")
+                st.warning(f"⚠️ خطأ في Excel: {file}")
 
-    return all_text[:15000]  # 🔥 نحدد الحجم عشان السرعة
+    return all_text[:15000]  # عشان السرعة
 
 # ------------------------
 # تشغيل سالم
 # ------------------------
-data_text = load_data()
+data = load_data()
 
-if data_text:
-    st.success("✅ سالم جاهز")
+if data:
+    st.success("✅ سالم جاهز ويقرأ جميع الملفات")
 
     if "messages" not in st.session_state:
         st.session_state.messages = []
@@ -73,34 +82,34 @@ if data_text:
     # عرض المحادثة
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+            st.write(msg["content"])
 
     # إدخال المستخدم
-    if prompt := st.chat_input("اسأل سالم عن السلامة..."):
-        st.session_state.messages.append({"role": "user", "content": prompt})
+    if question := st.chat_input("اسأل سالم..."):
+        st.session_state.messages.append({"role": "user", "content": question})
 
         with st.chat_message("user"):
-            st.markdown(prompt)
+            st.write(question)
 
         with st.chat_message("assistant"):
             try:
-                response = client.chat.completions.create(
-                    model="gpt-4o-mini",
+                response = openai.ChatCompletion.create(
+                    model="gpt-3.5-turbo",
                     messages=[
                         {
                             "role": "system",
-                            "content": "أنت مساعد سلامة مهنية. أجب فقط من المعلومات المعطاة."
+                            "content": "أنت خبير سلامة في محطة طاقة. أجب من البيانات فقط."
                         },
                         {
                             "role": "user",
-                            "content": f"النص:\n{data_text}\n\nالسؤال:\n{prompt}"
+                            "content": f"النص:\n{data}\n\nالسؤال:\n{question}"
                         }
                     ]
                 )
 
-                answer = response.choices[0].message.content
+                answer = response["choices"][0]["message"]["content"]
 
-                st.markdown(answer)
+                st.write(answer)
 
                 st.session_state.messages.append({
                     "role": "assistant",
@@ -108,7 +117,7 @@ if data_text:
                 })
 
             except Exception as e:
-                st.error(f"❌ خطأ: {e}")
+                st.error(f"❌ {e}")
 
 else:
     st.info("📂 ضع ملفاتك داخل مجلد data")
