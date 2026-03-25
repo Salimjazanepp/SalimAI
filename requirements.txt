@@ -1,11 +1,9 @@
 streamlit
-pandas
-openpyxl
-pdfplumber
+openai
 langchain
-langchain-openai
 langchain-community
-faiss-cpu
-arabic-reshaper
-python-bidi
+langchain-openai
 pypdf
+openpyxl
+faiss-cpu
+tiktoken
