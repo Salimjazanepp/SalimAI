@@ -1,11 +1,5 @@
-streamlit
-pandas
-openpyxl
-pdfplumber
-langchain
-langchain-openai
-langchain-community
-faiss-cpu
-arabic-reshaper
-python-bidi
-pypdf
+streamlit==1.32.0
+openai==0.28.1
+pypdf==4.1.0
+pandas==2.2.1
+openpyxl==3.1.2
