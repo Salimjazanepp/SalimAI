@@ -17,16 +17,16 @@ st.title("مساعد السلامة الافتراضي (سالم) 🛡️")
 st.subheader("إدارة محطة طاقة جازان 🏭")
 
 # ------------------------
-# API KEY
+# API KEY (الحل النهائي)
 # ------------------------
 if "OPENAI_API_KEY" in st.secrets:
-    openai_api_key = st.secrets["OPENAI_API_KEY"]
+    os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
 else:
     st.error("⚠️ لم يتم العثور على مفتاح OpenAI في Secrets")
     st.stop()
 
 # ------------------------
-# تحميل البيانات (نسخة مقاومة للأخطاء)
+# تحميل البيانات
 # ------------------------
 @st.cache_resource
 def load_data():
@@ -39,7 +39,7 @@ def load_data():
     for file in os.listdir(data_path):
         file_path = os.path.join(data_path, file)
 
-        # 📄 PDF (يتجاهل المشفر أو الخربان)
+        # 📄 PDF (تجاهل المشفر)
         if file.endswith(".pdf"):
             try:
                 reader = PdfReader(file_path)
@@ -89,9 +89,7 @@ def load_data():
 
     texts = splitter.split_documents(documents)
 
-    embeddings = OpenAIEmbeddings(
-        openai_api_key=openai_api_key
-    )
+    embeddings = OpenAIEmbeddings()  # ✅ بدون تمرير API
 
     vectorstore = FAISS.from_documents(texts, embeddings)
 
@@ -126,10 +124,7 @@ if vectorstore:
         )
 
         qa_chain = ConversationalRetrievalChain.from_llm(
-            llm=ChatOpenAI(
-                model_name="gpt-3.5-turbo",
-                openai_api_key=openai_api_key
-            ),
+            llm=ChatOpenAI(model_name="gpt-3.5-turbo"),  # ✅ بدون API
             retriever=vectorstore.as_retriever(),
             memory=memory
         )
@@ -150,4 +145,4 @@ if vectorstore:
                 st.error(f"❌ خطأ: {e}")
 
 else:
-    st.info("📂 ضع ملفاتك داخل مجلد data")
+    st.info("📂 تأكد من وجود ملفات داخل مجلد data")
