@@ -20,10 +20,8 @@ st.subheader("إدارة محطة طاقة جازان 🏭")
 # ------------------------
 # API KEY
 # ------------------------
-if "OPENAI_API_KEY" in st.secrets:
-    os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
-else:
-    st.error("⚠️ لم يتم العثور على المفتاح")
+if "OPENAI_API_KEY" not in st.secrets:
+    st.error("⚠️ لم يتم العثور على مفتاح OpenAI في Secrets")
     st.stop()
 
 # ------------------------
@@ -40,7 +38,7 @@ def load_data():
     for file in os.listdir(data_path):
         file_path = os.path.join(data_path, file)
 
-        # PDF
+        # 📄 PDF
         if file.endswith(".pdf"):
             try:
                 reader = PdfReader(file_path)
@@ -64,7 +62,7 @@ def load_data():
             except:
                 st.warning(f"⚠️ مشكلة في PDF: {file}")
 
-        # Excel
+        # 📊 Excel
         elif file.endswith(".xlsx") or file.endswith(".xls"):
             try:
                 df = pd.read_excel(file_path)
@@ -87,7 +85,7 @@ def load_data():
 
     texts = splitter.split_documents(documents)
 
-    # 🔥 هنا الحل: بدون OpenAIEmbeddings
+    # 🔥 بدون مشاكل Embeddings
     embeddings = FakeEmbeddings(size=1536)
 
     vectorstore = FAISS.from_documents(texts, embeddings)
@@ -109,7 +107,7 @@ if vectorstore:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    if prompt := st.chat_input("اسأل سالم..."):
+    if prompt := st.chat_input("اسأل سالم عن السلامة..."):
         st.session_state.messages.append({"role": "user", "content": prompt})
 
         with st.chat_message("user"):
@@ -121,7 +119,10 @@ if vectorstore:
         )
 
         qa_chain = ConversationalRetrievalChain.from_llm(
-            llm=ChatOpenAI(model_name="gpt-3.5-turbo"),
+            llm=ChatOpenAI(
+                model_name="gpt-3.5-turbo",
+                openai_api_key=st.secrets["OPENAI_API_KEY"]
+            ),
             retriever=vectorstore.as_retriever(),
             memory=memory
         )
