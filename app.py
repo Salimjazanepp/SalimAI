@@ -26,7 +26,7 @@ else:
     st.stop()
 
 # ------------------------
-# تحميل البيانات
+# تحميل البيانات (نسخة مقاومة للأخطاء)
 # ------------------------
 @st.cache_resource
 def load_data():
@@ -39,17 +39,14 @@ def load_data():
     for file in os.listdir(data_path):
         file_path = os.path.join(data_path, file)
 
-        # 📄 PDF (مع فك التشفير)
+        # 📄 PDF (يتجاهل المشفر أو الخربان)
         if file.endswith(".pdf"):
             try:
                 reader = PdfReader(file_path)
 
                 if reader.is_encrypted:
-                    try:
-                        reader.decrypt("")
-                    except:
-                        st.warning(f"🔒 الملف مشفر ولا يمكن قراءته: {file}")
-                        continue
+                    st.warning(f"⚠️ تم تجاهل ملف مشفر: {file}")
+                    continue
 
                 text = ""
                 for page in reader.pages:
@@ -63,22 +60,24 @@ def load_data():
                         )
                     )
 
-            except Exception as e:
-                st.warning(f"تعذر تحميل PDF {file}: {e}")
+            except Exception:
+                st.warning(f"⚠️ تم تجاهل PDF فيه مشكلة: {file}")
 
-        # 📊 Excel (بديل مستقر بدون unstructured)
+        # 📊 Excel
         elif file.endswith(".xlsx") or file.endswith(".xls"):
             try:
                 df = pd.read_excel(file_path)
                 text = df.to_string()
+
                 documents.append(
                     Document(
                         page_content=text,
                         metadata={"source": file}
                     )
                 )
-            except Exception as e:
-                st.warning(f"تعذر تحميل Excel {file}: {e}")
+
+            except Exception:
+                st.warning(f"⚠️ تم تجاهل Excel فيه مشكلة: {file}")
 
     if not documents:
         return None
@@ -99,12 +98,12 @@ def load_data():
     return vectorstore
 
 # ------------------------
-# تشغيل النظام
+# تشغيل سالم
 # ------------------------
 vectorstore = load_data()
 
 if vectorstore:
-    st.success("✅ تم تحميل بيانات السلامة - سالم جاهز")
+    st.success("✅ سالم جاهز ويعمل بدون مشاكل")
 
     if "messages" not in st.session_state:
         st.session_state.messages = []
@@ -114,7 +113,7 @@ if vectorstore:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    # إدخال المستخدم
+    # سؤال المستخدم
     if prompt := st.chat_input("اسأل سالم عن السلامة..."):
         st.session_state.messages.append({"role": "user", "content": prompt})
 
@@ -141,6 +140,7 @@ if vectorstore:
                 answer = response["answer"]
 
                 st.markdown(answer)
+
                 st.session_state.messages.append({
                     "role": "assistant",
                     "content": answer
@@ -150,4 +150,4 @@ if vectorstore:
                 st.error(f"❌ خطأ: {e}")
 
 else:
-    st.info("📂 تأكد من وجود ملفات داخل مجلد data")
+    st.info("📂 ضع ملفاتك داخل مجلد data")
