@@ -2,13 +2,7 @@ import streamlit as st
 import os
 import pandas as pd
 from pypdf import PdfReader
-from langchain_openai import ChatOpenAI
-from langchain_community.vectorstores import FAISS
-from langchain_community.embeddings import FakeEmbeddings
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.chains.conversational_retrieval.base import ConversationalRetrievalChain
-from langchain.memory import ConversationBufferMemory
-from langchain_core.documents import Document
+from openai import OpenAI
 
 # ------------------------
 # واجهة التطبيق
@@ -21,8 +15,10 @@ st.subheader("إدارة محطة طاقة جازان 🏭")
 # API KEY
 # ------------------------
 if "OPENAI_API_KEY" not in st.secrets:
-    st.error("⚠️ لم يتم العثور على مفتاح OpenAI في Secrets")
+    st.error("⚠️ لم يتم العثور على مفتاح OpenAI")
     st.stop()
+
+client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
 # ------------------------
 # تحميل البيانات
@@ -30,15 +26,15 @@ if "OPENAI_API_KEY" not in st.secrets:
 @st.cache_resource
 def load_data():
     data_path = "data/"
-    documents = []
+    all_text = ""
 
     if not os.path.exists(data_path):
-        return None
+        return ""
 
     for file in os.listdir(data_path):
         file_path = os.path.join(data_path, file)
 
-        # 📄 PDF
+        # PDF
         if file.endswith(".pdf"):
             try:
                 reader = PdfReader(file_path)
@@ -47,90 +43,62 @@ def load_data():
                     st.warning(f"⚠️ تم تجاهل ملف مشفر: {file}")
                     continue
 
-                text = ""
                 for page in reader.pages:
-                    text += page.extract_text() or ""
-
-                if text.strip():
-                    documents.append(
-                        Document(
-                            page_content=text,
-                            metadata={"source": file}
-                        )
-                    )
+                    all_text += page.extract_text() or ""
 
             except:
                 st.warning(f"⚠️ مشكلة في PDF: {file}")
 
-        # 📊 Excel
+        # Excel
         elif file.endswith(".xlsx") or file.endswith(".xls"):
             try:
                 df = pd.read_excel(file_path)
-                documents.append(
-                    Document(
-                        page_content=df.to_string(),
-                        metadata={"source": file}
-                    )
-                )
+                all_text += df.to_string()
             except:
                 st.warning(f"⚠️ مشكلة في Excel: {file}")
 
-    if not documents:
-        return None
-
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1000,
-        chunk_overlap=100
-    )
-
-    texts = splitter.split_documents(documents)
-
-    # 🔥 بدون مشاكل Embeddings
-    embeddings = FakeEmbeddings(size=1536)
-
-    vectorstore = FAISS.from_documents(texts, embeddings)
-
-    return vectorstore
+    return all_text[:15000]  # 🔥 نحدد الحجم عشان السرعة
 
 # ------------------------
 # تشغيل سالم
 # ------------------------
-vectorstore = load_data()
+data_text = load_data()
 
-if vectorstore:
-    st.success("✅ سالم جاهز الآن")
+if data_text:
+    st.success("✅ سالم جاهز")
 
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
+    # عرض المحادثة
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
+    # إدخال المستخدم
     if prompt := st.chat_input("اسأل سالم عن السلامة..."):
         st.session_state.messages.append({"role": "user", "content": prompt})
 
         with st.chat_message("user"):
             st.markdown(prompt)
 
-        memory = ConversationBufferMemory(
-            memory_key="chat_history",
-            return_messages=True
-        )
-
-        qa_chain = ConversationalRetrievalChain.from_llm(
-            llm=ChatOpenAI(
-                model_name="gpt-3.5-turbo",
-                openai_api_key=st.secrets["OPENAI_API_KEY"]
-            ),
-            retriever=vectorstore.as_retriever(),
-            memory=memory
-        )
-
         with st.chat_message("assistant"):
             try:
-                response = qa_chain.invoke({"question": prompt})
-                answer = response["answer"]
+                response = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "أنت مساعد سلامة مهنية. أجب فقط من المعلومات المعطاة."
+                        },
+                        {
+                            "role": "user",
+                            "content": f"النص:\n{data_text}\n\nالسؤال:\n{prompt}"
+                        }
+                    ]
+                )
+
+                answer = response.choices[0].message.content
 
                 st.markdown(answer)
 
