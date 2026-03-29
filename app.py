@@ -14,10 +14,10 @@ openai.api_key = st.secrets["OPENAI_API_KEY"]
 st.set_page_config(page_title="سالم - محطة جازان", page_icon="🛡️")
 st.title("🛡️ مساعد السلامة الذكي (سالم)")
 st.markdown("<h3 style='color: #2E7D32;'>إلتزم بالسلامة.. وخلك سالم</h3>", unsafe_allow_html=True)
-st.info("📑 نظام بحث متطور لجميع ملفات السلامة - إدارة محطة طاقة جازان")
+st.info("📑 نظام بحث شامل - شركة الكهرباء (SEC) - إدارة محطة جازان")
 st.divider()
 
-# --- 3. تحميل البيانات (قراءة شاملة للمحتوى) ---
+# --- 3. تحميل البيانات (قراءة عميقة جداً) ---
 @st.cache_resource
 def load_all_data():
     data_path = "data/"
@@ -31,8 +31,8 @@ def load_all_data():
         if file.endswith(".pdf"):
             try:
                 reader = PdfReader(path)
-                # نأخذ أول 35 صفحة لضمان تغطية أدلة السلامة الضخمة بالكامل
-                for page in reader.pages[:35]:
+                # رفعنا القراءة لـ 50 صفحة لضمان تغطية كامل ملف Life Saving Rules
+                for page in reader.pages[:50]:
                     t = page.extract_text()
                     if t: text += t
             except: continue
@@ -47,43 +47,39 @@ def load_all_data():
 
 all_docs = load_all_data()
 
-# --- 4. محرك البحث الذكي (نظام القفز لتجاوز المقدمات) ---
+# --- 4. محرك البحث (البحث عن الجوهر وتجاوز الحشو) ---
 def get_relevant_context(query, docs):
     query_words = [word.lower() for word in query.split() if len(word) > 2]
     scored_docs = []
 
     for filename, content in docs.items():
-        filename_lower = filename.lower()
         content_lower = content.lower()
         
-        # حساب النقاط (أولوية عالية لاسم الملف)
-        score = sum(20 for word in query_words if word in filename_lower)
-        score += sum(2 for word in query_words if word in content_lower)
+        # حساب النقاط بناءً على اسم الملف ومحتواه
+        score = sum(30 for word in query_words if word in filename.lower())
+        score += sum(3 for word in query_words if word in content_lower)
         
         if score > 0:
-            # ✨ ميزة القفز الذكي: ابحث عن موقع أول كلمة مفتاحية في النص
+            # ✨ ميزة: "البحث عن قلب المعلومة"
+            # نبحث عن أول ظهور لمصطلح البحث ونبدأ القراءة من هناك بـ 500 حرف للخلف
+            # لنتجاوز المقدمات والفهارس آلياً
             start_index = 0
-            found_indices = [content_lower.find(word) for word in query_words if content_lower.find(word) != -1]
-            
+            found_indices = [content_lower.find(word) for word in query_words if content_lower.find(word) > 1000]
             if found_indices:
-                first_match = min(found_indices)
-                # إذا كانت الكلمة بعيدة (بعد أول 1000 حرف)، ابدأ القراءة من قبلها بـ 300 حرف
-                if first_match > 1000:
-                    start_index = first_match - 300
+                start_index = min(found_indices) - 500
             
-            scored_docs.append((score, filename, content[start_index:]))
+            scored_docs.append((score, filename, content[max(0, start_index):]))
 
-    # ترتيب النتائج
     scored_docs.sort(key=lambda x: x[0], reverse=True)
     
     context = ""
-    # نأخذ أفضل 3 ملفات ونعطي مساحة كبيرة للملف الأول (الأساسي)
-    for i in range(min(3, len(scored_docs))):
+    # نأخذ المصدر الأول بمساحة ضخمة (9000 حرف) ليتمكن من سرد الـ 10 قواعد كاملة
+    for i in range(min(2, len(scored_docs))):
         score, filename, content = scored_docs[i]
-        limit = 7000 if i == 0 else 3000 # 7000 حرف للمصدر الأساسي كافية لذكر الـ 10 قواعد بالتفصيل
+        limit = 9000 if i == 0 else 3000
         context += f"\n\n[المصدر رقم {i+1}: {filename}]\n{content[:limit]}\n"
     
-    return context[:14000]
+    return context[:12500]
 
 # --- 5. إدارة المحادثة ---
 if "messages" not in st.session_state:
@@ -92,8 +88,8 @@ if "messages" not in st.session_state:
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]): st.write(msg["content"])
 
-# --- 6. الإدخال وتوليد الرد الاحترافي ---
-if question := st.chat_input("اسأل سالم عن أي تفصيل..."):
+# --- 6. الإدخال وتوليد الرد (تعليمات صارمة للموديل) ---
+if question := st.chat_input("اسأل سالم عن قواعد السلامة..."):
     st.session_state.messages.append({"role": "user", "content": question})
     with st.chat_message("user"): st.write(question)
 
@@ -106,20 +102,21 @@ if question := st.chat_input("اسأل سالم عن أي تفصيل..."):
                 messages=[
                     {
                         "role": "system",
-                        "content": """أنت خبير سلامة محترف في محطة جازان (سالم). 
-                        مهمتك تقديم إجابة شاملة ومفصلة ومرتبة.
-                        - لا تكتفِ بذكر الفصول (مثل مقدمة، نطاق)، بل ادخل في صلب التفاصيل الفنية.
-                        - إذا كان السؤال عن قواعد، اذكرها جميعاً مع شرح مبسط لكل قاعدة.
-                        - استخدم العناوين العريضة (Bold) والقوائم النقطية.
-                        - اجعل أسلوبك توعوياً ومهنياً.
-                        - اذكر اسم الملف المرجعي بوضوح في نهاية الرد."""
+                        "content": """أنت (سالم)، خبير السلامة في محطة جازان. 
+                        تعليمات صارمة للرد:
+                        1. ابحث عن القواعد العشر الحقيقية (عزل الطاقة، العمل على المرتفعات، القيادة، إلخ).
+                        2. لا تذكر الفهرس أو المقدمات (نطاق، غرض، مسؤولية).
+                        3. إذا سألت عن 'قواعد الحفاظ على الحياة'، يجب أن تسرد القواعد العشر كاملة مع شرح بسيط لكل واحدة.
+                        4. استخدم الجداول أو القوائم المنظمة جداً.
+                        5. كن دقيقاً جداً ولا تؤلف معلومات من خارج النص المرفق.
+                        6. اذكر اسم الملف المرجعي في نهاية الإجابة."""
                     },
-                    {"role": "user", "content": f"السؤال: {question}\n\nالنصوص المتاحة من ملفاتك:\n{context}"}
+                    {"role": "user", "content": f"السؤال: {question}\n\nالنصوص الفنية المتاحة:\n{context}"}
                 ],
-                temperature=0.2
+                temperature=0 # صفر لضمان الدقة المطلقة وعدم التأليف
             )
             answer = response["choices"][0]["message"]["content"]
             st.write(answer)
             st.session_state.messages.append({"role": "assistant", "content": answer})
         except Exception as e:
-            st.error(f"⚠️ عذراً، حدث خطأ فني: {e}")
+            st.error(f"⚠️ حدث خطأ فني: {e}")
