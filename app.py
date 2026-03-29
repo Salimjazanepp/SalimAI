@@ -31,12 +31,11 @@ def load_all_data():
         path = os.path.join(data_path, file)
         text = ""
 
-        # PDF
+        # 📄 PDF
         if file.endswith(".pdf"):
             try:
                 reader = PdfReader(path)
 
-                # فك التشفير
                 if reader.is_encrypted:
                     try:
                         reader.decrypt("")
@@ -51,7 +50,7 @@ def load_all_data():
             except:
                 continue
 
-        # Excel
+        # 📊 Excel
         elif file.endswith((".xlsx", ".xls")):
             try:
                 df = pd.read_excel(path)
@@ -66,29 +65,37 @@ def load_all_data():
 
 all_docs = load_all_data()
 
-# 🧪 للتأكد (احذفه لاحقًا)
-st.write("📂 الملفات المحملة:", list(all_docs.keys()))
+# 🧪 عرض الملفات للتأكد (احذفه لاحقًا)
+st.write("📂 الملفات:", list(all_docs.keys()))
 
-# --- 4. محرك البحث (محسن 🔥) ---
+# --- 4. محرك البحث الذكي 🔥 ---
 def get_relevant_context(query, docs):
     query = query.lower()
     scored_docs = []
 
     for filename, content in docs.items():
+        filename_lower = filename.lower()
         content_lower = content.lower()
 
-        score = sum(word in content_lower for word in query.split())
+        score = 0
+
+        # 🔥 1. تطابق اسم الملف (أقوى)
+        if any(word in filename_lower for word in query.split()):
+            score += 5
+
+        # 🔥 2. تطابق داخل المحتوى
+        score += sum(word in content_lower for word in query.split())
 
         scored_docs.append((score, filename, content))
 
-    # ترتيب حسب الأفضل
+    # ترتيب حسب الأعلى
     scored_docs.sort(reverse=True)
 
     context = ""
 
-    # 🔥 دائمًا نرجع أفضل 3 ملفات حتى لو ما فيه تطابق
-    for score, filename, content in scored_docs[:3]:
-        context += f"\n\n[مصدر: {filename}]\n{content[:4000]}"
+    # 🔥 أفضل ملفين فقط لزيادة الدقة
+    for score, filename, content in scored_docs[:2]:
+        context += f"\n\n[مصدر: {filename}]\n{content[:5000]}"
 
     return context[:12000]
 
@@ -109,8 +116,8 @@ if question := st.chat_input("اسأل عن أنظمة السلامة أو أي 
 
     context = get_relevant_context(question, all_docs)
 
-    # 🧪 تأكد إن فيه نص
-    st.write("📊 حجم البيانات المستخدمة:", len(context))
+    # 🧪 مراقبة
+    st.write("📊 حجم البيانات:", len(context))
 
     with st.chat_message("assistant"):
         try:
@@ -123,10 +130,11 @@ if question := st.chat_input("اسأل عن أنظمة السلامة أو أي 
 
 مهمتك:
 - أجب فقط من النص
-- لا تقل "لا يوجد نص"
-- إذا لم تجد إجابة واضحة، قل: لم يتم العثور على إجابة دقيقة
+- ركز على الموضوع المطلوب (مثلاً: العمل على المرتفعات)
+- تجاهل أي معلومات غير مرتبطة
 - اعرض الخطوات كنقاط
 - اذكر المصدر إذا وجد
+- لا تخمن أبداً
 """
                     },
                     {
