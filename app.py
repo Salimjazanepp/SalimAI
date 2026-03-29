@@ -4,145 +4,93 @@ import pandas as pd
 from pypdf import PdfReader
 import openai
 
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import FAISS
-from langchain.embeddings.openai import OpenAIEmbeddings
-
-# ------------------------
-# API KEY
-# ------------------------
+# --- 1. إعداد المفتاح ---
 if "OPENAI_API_KEY" not in st.secrets:
     st.error("⚠️ مفتاح OpenAI غير موجود")
     st.stop()
-
 openai.api_key = st.secrets["OPENAI_API_KEY"]
 
-# ------------------------
-# UI
-# ------------------------
-st.set_page_config(page_title="سالم - مستوى الشركات", page_icon="🛡️")
-st.title("🛡️ سالم - مساعد السلامة الاحترافي")
-st.caption("🚀 نظام داخلي ذكي - إدارة محطة طاقة جازان")
+# --- 2. الواجهة وتنسيق السلوجن ---
+st.set_page_config(page_title="سالم - محطة جازان", page_icon="🛡️")
 
-# ------------------------
-# تحميل البيانات + تحويلها لذكاء
-# ------------------------
+# عرض اسم "سالم" والسلوجن بشكل جذاب
+st.title("🛡️ مساعد السلامة الذكي (سالم)")
+st.markdown("<h3 style='color: #2E7D32; font-family: sans-serif;'>إلتزم بالسلامة.. وخلك سالم</h3>", unsafe_allow_html=True)
+
+st.info("📑 نظام بحث متطور لجميع ملفات السلامة - إدارة محطة طاقة جازان - نسخة تجريبية")
+st.divider()
+
+# --- 3. تحميل البيانات (PDF & Excel) ---
 @st.cache_resource
-def load_vector_db():
+def load_all_data():
     data_path = "data/"
-    documents = []
+    docs = {}
+    if not os.path.exists(data_path): return {}
+    files = [f for f in os.listdir(data_path) if f.endswith(('.pdf', '.xlsx', '.xls'))]
 
-    if not os.path.exists(data_path):
-        return None
-
-    for file in os.listdir(data_path):
+    for file in files:
         path = os.path.join(data_path, file)
-
-        # PDF
+        text = ""
         if file.endswith(".pdf"):
             try:
                 reader = PdfReader(path)
-
-                if reader.is_encrypted:
-                    try:
-                        reader.decrypt("")
-                    except:
-                        continue
-
-                for i, page in enumerate(reader.pages):
-                    text = page.extract_text()
-                    if text:
-                        documents.append({
-                            "text": text,
-                            "source": file,
-                            "page": i + 1
-                        })
-            except:
-                continue
-
-        # Excel
+                for page in reader.pages[:15]:
+                    t = page.extract_text()
+                    if t: text += t
+            except: continue
         elif file.endswith((".xlsx", ".xls")):
             try:
                 df = pd.read_excel(path)
-                documents.append({
-                    "text": df.to_string(),
-                    "source": file,
-                    "page": "Excel"
-                })
-            except:
-                continue
+                text = df.to_string()
+            except: continue
+        if text.strip():
+            docs[file] = text
+    return docs
 
-    # تقسيم النصوص
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=800,
-        chunk_overlap=150
-    )
+all_docs = load_all_data()
 
-    texts = []
-    metadatas = []
+# --- 4. محرك البحث الذكي (نظام النقاط المطور) ---
+def get_relevant_context(query, docs):
+    query_words = query.lower().split()
+    scored_docs = []
 
-    for doc in documents:
-        chunks = splitter.split_text(doc["text"])
-        for chunk in chunks:
-            texts.append(chunk)
-            metadatas.append({
-                "source": doc["source"],
-                "page": doc["page"]
-            })
+    for filename, content in docs.items():
+        filename_lower = filename.lower()
+        content_lower = content.lower()
+        score = 0
 
-    # Embeddings (فهم المعنى)
-    embeddings = OpenAIEmbeddings()
+        # أولوية لاسم الملف
+        if any(word in filename_lower for word in query_words):
+            score += 20 
 
-    db = FAISS.from_texts(texts, embeddings, metadatas=metadatas)
+        # تطابق المحتوى
+        for word in query_words:
+            if word in content_lower:
+                score += content_lower.count(word)
 
-    return db
+        scored_docs.append((score, filename, content))
 
-db = load_vector_db()
+    scored_docs.sort(key=lambda x: x[0], reverse=True)
+    
+    context = ""
+    for score, filename, content in scored_docs[:2]:
+        if score > 0:
+            context += f"\n\n[المصدر: {filename}]\n{content[:6000]}\n"
+    return context[:12000]
 
-# ------------------------
-# إدارة المحادثة
-# ------------------------
+# --- 5. إدارة المحادثة ---
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
 for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.write(msg["content"])
+    with st.chat_message(msg["role"]): st.write(msg["content"])
 
-# ------------------------
-# سؤال المستخدم
-# ------------------------
-if question := st.chat_input("اسأل سالم عن السلامة..."):
-
+# --- 6. إدخال المستخدم وتوليد الرد ---
+if question := st.chat_input("اسأل سالم عن أي تفصيل في أنظمة السلامة..."):
     st.session_state.messages.append({"role": "user", "content": question})
+    with st.chat_message("user"): st.write(question)
 
-    with st.chat_message("user"):
-        st.write(question)
-
-    # 🔥 بحث احترافي (متعدد المصادر)
-    search_results = db.similarity_search(question, k=10)
-
-    docs = []
-    seen_sources = set()
-
-    for d in search_results:
-        source = d.metadata["source"]
-
-        if source not in seen_sources:
-            docs.append(d)
-            seen_sources.add(source)
-
-        if len(seen_sources) >= 4:  # 🔥 تنوع المصادر
-            break
-
-    # بناء السياق
-    context = ""
-    sources = []
-
-    for d in docs:
-        src = f"{d.metadata['source']} - صفحة {d.metadata['page']}"
-        context += f"\n\n[المصدر: {src}]\n{d.page_content}"
-        sources.append(src)
+    context = get_relevant_context(question, all_docs)
 
     with st.chat_message("assistant"):
         try:
@@ -151,43 +99,17 @@ if question := st.chat_input("اسأل سالم عن السلامة..."):
                 messages=[
                     {
                         "role": "system",
-                        "content": """أنت خبير سلامة في محطة طاقة.
-
-مهمتك:
-- اجمع المعلومات من عدة مصادر
-- لا تعتمد على مصدر واحد
-- اعرض الإجابة كنقاط واضحة
-- اذكر المصدر لكل نقطة إذا أمكن
-- لا تخمن أبداً
-"""
+                        "content": "أنت خبير سلامة في محطة جازان. أجب بدقة من النص المرفق فقط. ركز على الموضوع المطلوب ولا تخلط الملفات. اعرض الخطوات كنقاط واذكر اسم الملف المستخدم في نهاية إجابتك."
                     },
-                    {
-                        "role": "user",
-                        "content": f"النص:\n{context}\n\nالسؤال:\n{question}"
-                    }
+                    {"role": "user", "content": f"النص:\n{context}\n\nالسؤال:\n{question}"}
                 ],
                 temperature=0
             )
-
             answer = response["choices"][0]["message"]["content"]
-
             st.write(answer)
-
-            # عرض المصادر
-            st.markdown("### 📌 المصادر:")
-            for s in sorted(set(sources)):
-                st.write(f"- {s}")
-
-            st.session_state.messages.append({
-                "role": "assistant",
-                "content": answer
-            })
-
+            st.session_state.messages.append({"role": "assistant", "content": answer})
         except Exception as e:
-            st.error(f"❌ خطأ: {e}")
+            st.error(f"⚠️ خطأ فني: {e}")
 
-# ------------------------
-# في حال ما فيه بيانات
-# ------------------------
-if not db:
-    st.warning("⚠️ لا توجد ملفات في مجلد data")
+if not all_docs:
+    st.warning("⚠️ لا توجد ملفات داخل مجلد data")
