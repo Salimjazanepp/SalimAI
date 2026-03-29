@@ -10,60 +10,61 @@ if "OPENAI_API_KEY" not in st.secrets:
     st.stop()
 openai.api_key = st.secrets["OPENAI_API_KEY"]
 
-# --- 2. واجهة التطبيق ---
 st.set_page_config(page_title="سالم - محطة جازان", page_icon="🛡️")
 st.markdown("### 🛡️ مساعد السلامة الذكي (سالم)")
 st.info("📑 نظام بحث متطور لجميع ملفات السلامة - إدارة محطة جازان - نسخة تجريبية")
 
-# --- 3. دالة جلب البيانات (موزونة بدقة لـ 16k Tokens) ---
+# --- 2. دالة تحميل البيانات الذكية ---
 @st.cache_resource
 def load_all_data():
     data_path = "data/"
-    all_sections = []
-    
-    if not os.path.exists(data_path):
-        return ""
-
+    docs = {} 
+    if not os.path.exists(data_path): return {}
     files = [f for f in os.listdir(data_path) if f.endswith(('.pdf', '.xlsx', '.xls'))]
     
     for file in files:
         path = os.path.join(data_path, file)
-        file_content = ""
-        
+        text = ""
         if file.endswith(".pdf"):
             try:
                 reader = PdfReader(path)
-                # نأخذ أول 10 صفحات (توازن بين العمق والمساحة)
-                for page in reader.pages[:10]:
-                    text = page.extract_text()
-                    if text: file_content += text
+                for page in reader.pages[:15]:
+                    t = page.extract_text()
+                    if t: text += t
             except: continue
-        
         elif file.endswith((".xlsx", ".xls")):
-            try:
-                df = pd.read_excel(path)
-                file_content = df.to_string()
+            try: text = pd.read_excel(path).to_string()
             except: continue
-        
-        if file_content:
-            # نأخذ 4200 حرف فقط لضمان عدم تجاوز الـ 16 ألف توكن الإجمالية
-            all_sections.append(f"\n[المستند: {file}]\n{file_content[:4200]}")
-                
-    return "\n\n".join(all_sections)
+        if text: docs[file] = text
+    return docs
 
-# --- 4. تشغيل قاعدة البيانات ---
-knowledge_base = load_all_data()
+all_docs = load_all_data()
 
-# --- 5. نظام المحادثة ---
+# --- 3. محرك البحث عن المعلومات ذات الصلة ---
+def get_relevant_context(query, docs):
+    query_words = query.split()
+    relevant_text = ""
+    for filename, content in docs.items():
+        # إذا وجدنا كلمة من السؤال في الملف، نأخذ هذا الملف كأولوية
+        if any(word.lower() in content.lower() for word in query_words) or any(word in filename for word in query_words):
+            relevant_text += f"\n\n[مصدر البيانات: {filename}]\n{content[:6000]}\n"
+    
+    # إذا لم يجد كلمات محددة، يعيد أول 12000 حرف من الإجمالي (لضمان عدم تجاوز الـ Tokens)
+    return relevant_text[:12000] if relevant_text else "\n".join([f"[{k}]\n{v[:2000]}" for k, v in docs.items()])[:12000]
+
+# --- 4. إدارة الدردشة ---
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]): st.write(msg["content"])
 
-if question := st.chat_input("اسأل سالم عن التفاصيل..."):
+if question := st.chat_input("اسأل عن أنظمة الحماية من السقوط أو أي تفصيل آخر..."):
     st.session_state.messages.append({"role": "user", "content": question})
     with st.chat_message("user"): st.write(question)
+
+    # جلب السياق المرتبط بالسؤال فقط
+    context = get_relevant_context(question, all_docs)
 
     with st.chat_message("assistant"):
         try:
@@ -72,17 +73,17 @@ if question := st.chat_input("اسأل سالم عن التفاصيل..."):
                 messages=[
                     {
                         "role": "system", 
-                        "content": "أنت خبير سلامة في محطة جازان. اقرأ المقتطفات المقدمة بدقة. لا تكتفِ بذكر اسم الملف، بل اشرح التفاصيل والمخاطر والإجراءات المطلوبة كما وردت في النص."
+                        "content": "أنت خبير سلامة مهنية. مهمتك استخراج إجابات دقيقة ومباشرة من النصوص. إذا سُئلت عن 'أمثلة' أو 'خطوات'، استخرجها على شكل نقاط من صلب النص المرفق. لا تعطِ ملخصات عامة عن الملفات، بل أجب عن السؤال مباشرة."
                     },
                     {
                         "role": "user", 
-                        "content": f"المعلومات المتاحة:\n{knowledge_base}\n\nالسؤال: {question}"
+                        "content": f"استخرج الإجابة المباشرة للسؤال التالي من النصوص المرفقة فقط:\n\nالنصوص:\n{context}\n\nالسؤال: {question}"
                     }
                 ],
-                temperature=0.3
+                temperature=0 # جعل الإجابة دقيقة جداً ومباشرة من النص
             )
             answer = response["choices"][0]["message"]["content"]
             st.write(answer)
             st.session_state.messages.append({"role": "assistant", "content": answer})
         except Exception as e:
-            st.error(f"⚠️ حدث خطأ فني: {e}")
+            st.error(f"⚠️ خطأ: {e}")
