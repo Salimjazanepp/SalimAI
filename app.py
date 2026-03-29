@@ -17,7 +17,7 @@ st.markdown("<h3 style='color: #2E7D32;'>إلتزم بالسلامة.. وخلك 
 st.info("📑 نظام بحث متطور لجميع ملفات السلامة - إدارة محطة طاقة جازان - نسخة تجريبية")
 st.divider()
 
-# --- 3. تحميل البيانات ---
+# --- 3. تحميل البيانات الذكي (PDF & Excel) ---
 @st.cache_resource
 def load_all_data():
     data_path = "data/"
@@ -28,25 +28,29 @@ def load_all_data():
     for file in files:
         path = os.path.join(data_path, file)
         text = ""
+        # 📄 معالجة PDF (قراءة مركزة)
         if file.endswith(".pdf"):
             try:
                 reader = PdfReader(path)
-                for page in reader.pages[:10]: # نأخذ أول 10 صفحات من كل ملف
+                # نأخذ أول 12 صفحة (التي تحتوي عادة على القواعد والتعريفات)
+                for page in reader.pages[:12]:
                     t = page.extract_text()
                     if t: text += t
             except: continue
+        # 📊 معالجة Excel (احترافية كما هي)
         elif file.endswith((".xlsx", ".xls")):
             try:
                 df = pd.read_excel(path)
                 text = df.to_string()
             except: continue
+        
         if text.strip():
             docs[file] = text
     return docs
 
 all_docs = load_all_data()
 
-# --- 4. محرك البحث المتنوع (يمنع التركيز على ملف واحد) ---
+# --- 4. محرك البحث المتعدد (يمنع احتكار ملف واحد للنتائج) ---
 def get_relevant_context(query, docs):
     query_words = [word.lower() for word in query.split() if len(word) > 2]
     scored_docs = []
@@ -54,19 +58,26 @@ def get_relevant_context(query, docs):
     for filename, content in docs.items():
         filename_lower = filename.lower()
         content_lower = content.lower()
-        score = sum(10 for word in query_words if word in filename_lower)
-        score += sum(1 for word in query_words if word in content_lower)
+        
+        # نظام نقاط دقيق
+        score = sum(15 for word in query_words if word in filename_lower) # قوة لاسم الملف
+        score += sum(1 for word in query_words if word in content_lower) # قوة للمحتوى
+        
         if score > 0:
             scored_docs.append((score, filename, content))
 
+    # ترتيب حسب الصلة بالسؤال
     scored_docs.sort(key=lambda x: x[0], reverse=True)
     
     context = ""
-    # نوزع الذاكرة على 4 ملفات بدلاً من ملف واحد ضخم
+    # 💡 الحل الجذري: نأخذ "مقتطفات" من أفضل 4 ملفات بدلاً من ملف واحد كامل
+    # كذا نضمن أننا نرى الإكسل و PDF المرتفعات و PDF السقالات معاً
     for i in range(min(4, len(scored_docs))):
         score, filename, content = scored_docs[i]
-        context += f"\n\n[مستند {i+1}: {filename}]\n{content[:2500]}\n"
-    return context[:11000]
+        # نأخذ 2800 حرف من كل ملف (حوالي 500 كلمة) لضمان التنوع
+        context += f"\n\n[مستند {i+1}: {filename}]\n{content[:2800]}\n"
+    
+    return context[:11500]
 
 # --- 5. إدارة المحادثة ---
 if "messages" not in st.session_state:
@@ -89,7 +100,7 @@ if question := st.chat_input("اسأل سالم عن أي تفصيل..."):
                 messages=[
                     {
                         "role": "system",
-                        "content": "أنت خبير سلامة في محطة جازان. أمامك مقتطفات من عدة ملفات مختلفة. ابحث عن الإجابة في المستندات المرفقة بدقة. إذا كان السؤال عن موضوع معين، استخرج المعلومات من الملف المرتبط به. اعرض الإجابة كنقاط واذكر اسم الملف الأساسي."
+                        "content": "أنت خبير سلامة في محطة جازان. أمامك مقتطفات من عدة ملفات (PDF وإكسل). وظيفتك الإجابة بدقة من المستند المرتبط بالسؤال. إذا سئلت عن بيانات جدولية، اعرضها بوضوح. اذكر اسم الملف المستخدم دائماً."
                     },
                     {"role": "user", "content": f"السؤال: {question}\n\nالنصوص المتاحة:\n{context}"}
                 ],
@@ -99,4 +110,4 @@ if question := st.chat_input("اسأل سالم عن أي تفصيل..."):
             st.write(answer)
             st.session_state.messages.append({"role": "assistant", "content": answer})
         except Exception as e:
-            st.error(f"⚠️ خطأ: {e}")
+            st.error(f"⚠️ خطأ فني: {e}")
