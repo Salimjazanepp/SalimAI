@@ -1,7 +1,7 @@
 import streamlit as st
 import os
 import pandas as pd
-from pypdf import PdfReader
+import pdfplumber
 import openai
 
 # --- 1. إعداد المفتاح ---
@@ -10,14 +10,13 @@ if "OPENAI_API_KEY" not in st.secrets:
     st.stop()
 openai.api_key = st.secrets["OPENAI_API_KEY"]
 
-# --- 2. الواجهة والسلوجن ---
+# --- 2. الواجهة ---
 st.set_page_config(page_title="سالم - محطة جازان", page_icon="🛡️")
 st.title("🛡️ مساعد السلامة الذكي (سالم)")
 st.markdown("<h3 style='color: #2E7D32;'>إلتزم بالسلامة.. وخلك سالم</h3>", unsafe_allow_html=True)
-st.info("📑 نظام بحث شامل - شركة الكهرباء (SEC) - إدارة محطة جازان")
 st.divider()
 
-# --- 3. تحميل البيانات (قراءة عميقة جداً) ---
+# --- 3. تحميل البيانات (استخدام pdfplumber للجداول) ---
 @st.cache_resource
 def load_all_data():
     data_path = "data/"
@@ -30,11 +29,11 @@ def load_all_data():
         text = ""
         if file.endswith(".pdf"):
             try:
-                reader = PdfReader(path)
-                # رفعنا القراءة لـ 50 صفحة لضمان تغطية كامل ملف Life Saving Rules
-                for page in reader.pages[:50]:
-                    t = page.extract_text()
-                    if t: text += t
+                with pdfplumber.open(path) as pdf:
+                    # نأخذ أول 30 صفحة لضمان الشمولية
+                    for page in pdf.pages[:30]:
+                        t = page.extract_text()
+                        if t: text += t + "\n"
             except: continue
         elif file.endswith((".xlsx", ".xls")):
             try:
@@ -47,49 +46,47 @@ def load_all_data():
 
 all_docs = load_all_data()
 
-# --- 4. محرك البحث (البحث عن الجوهر وتجاوز الحشو) ---
+# --- 4. محرك البحث "العادل" (يمنع احتكار ملف واحد) ---
 def get_relevant_context(query, docs):
     query_words = [word.lower() for word in query.split() if len(word) > 2]
     scored_docs = []
 
     for filename, content in docs.items():
+        filename_lower = filename.lower()
         content_lower = content.lower()
         
-        # حساب النقاط بناءً على اسم الملف ومحتواه
-        score = sum(30 for word in query_words if word in filename.lower())
-        score += sum(3 for word in query_words if word in content_lower)
+        # نظام نقاط متوازن
+        score = sum(15 for word in query_words if word in filename_lower)
+        score += sum(1 for word in query_words if word in content_lower)
         
         if score > 0:
-            # ✨ ميزة: "البحث عن قلب المعلومة"
-            # نبحث عن أول ظهور لمصطلح البحث ونبدأ القراءة من هناك بـ 500 حرف للخلف
-            # لنتجاوز المقدمات والفهارس آلياً
+            # القفز الذكي لتجاوز الحشو
             start_index = 0
-            found_indices = [content_lower.find(word) for word in query_words if content_lower.find(word) > 1000]
+            found_indices = [content_lower.find(word) for word in query_words if content_lower.find(word) > 500]
             if found_indices:
-                start_index = min(found_indices) - 500
+                start_index = max(0, min(found_indices) - 300)
             
-            scored_docs.append((score, filename, content[max(0, start_index):]))
+            scored_docs.append((score, filename, content[start_index:]))
 
     scored_docs.sort(key=lambda x: x[0], reverse=True)
     
     context = ""
-    # نأخذ المصدر الأول بمساحة ضخمة (9000 حرف) ليتمكن من سرد الـ 10 قواعد كاملة
-    for i in range(min(2, len(scored_docs))):
+    # 💡 الحل الجذري: نوزع الذاكرة على 4 ملفات بالتساوي (3000 حرف لكل ملف)
+    # هذا يمنع أي ملف PDF من إقصاء ملف الإكسل أو الملفات الأخرى
+    for i in range(min(4, len(scored_docs))):
         score, filename, content = scored_docs[i]
-        limit = 9000 if i == 0 else 3000
-        context += f"\n\n[المصدر رقم {i+1}: {filename}]\n{content[:limit]}\n"
+        context += f"\n\n[مستند {i+1}: {filename}]\n{content[:3000]}\n"
     
-    return context[:12500]
+    return context[:12000]
 
-# --- 5. إدارة المحادثة ---
+# --- 5. الدردشة ---
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]): st.write(msg["content"])
 
-# --- 6. الإدخال وتوليد الرد (تعليمات صارمة للموديل) ---
-if question := st.chat_input("اسأل سالم عن قواعد السلامة..."):
+if question := st.chat_input("اسأل سالم..."):
     st.session_state.messages.append({"role": "user", "content": question})
     with st.chat_message("user"): st.write(question)
 
@@ -102,21 +99,21 @@ if question := st.chat_input("اسأل سالم عن قواعد السلامة..
                 messages=[
                     {
                         "role": "system",
-                        "content": """أنت (سالم)، خبير السلامة في محطة جازان. 
-                        تعليمات صارمة للرد:
-                        1. ابحث عن القواعد العشر الحقيقية (عزل الطاقة، العمل على المرتفعات، القيادة، إلخ).
-                        2. لا تذكر الفهرس أو المقدمات (نطاق، غرض، مسؤولية).
-                        3. إذا سألت عن 'قواعد الحفاظ على الحياة'، يجب أن تسرد القواعد العشر كاملة مع شرح بسيط لكل واحدة.
-                        4. استخدم الجداول أو القوائم المنظمة جداً.
-                        5. كن دقيقاً جداً ولا تؤلف معلومات من خارج النص المرفق.
-                        6. اذكر اسم الملف المرجعي في نهاية الإجابة."""
+                        "content": """أنت خبير سلامة محترف (سالم). 
+                        أمامك مقتطفات من عدة ملفات (PDF وإكسل).
+                        مهمتك:
+                        1. لا تنحاز لملف واحد؛ ابحث عن الإجابة في جميع المستندات المرفقة.
+                        2. إذا وجدت بيانات في الإكسل مرتبطة بالسؤال، اذكرها فوراً.
+                        3. اذكر القواعد العشر للحفاظ على الحياة كما هي في ملف SEC (عزل الطاقة، المرتفعات، إلخ).
+                        4. استخدم التنسيق النقطي والعناوين العريضة.
+                        5. اذكر اسم الملف المستخدم في نهاية ردك."""
                     },
-                    {"role": "user", "content": f"السؤال: {question}\n\nالنصوص الفنية المتاحة:\n{context}"}
+                    {"role": "user", "content": f"السؤال: {question}\n\nالنصوص المتاحة:\n{context}"}
                 ],
-                temperature=0 # صفر لضمان الدقة المطلقة وعدم التأليف
+                temperature=0
             )
             answer = response["choices"][0]["message"]["content"]
             st.write(answer)
             st.session_state.messages.append({"role": "assistant", "content": answer})
         except Exception as e:
-            st.error(f"⚠️ حدث خطأ فني: {e}")
+            st.error(f"⚠️ خطأ فني: {e}")
