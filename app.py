@@ -17,7 +17,7 @@ st.markdown("<h3 style='color: #2E7D32;'>إلتزم بالسلامة.. وخلك 
 st.info("📑 نظام بحث متطور لجميع ملفات السلامة - إدارة محطة طاقة جازان")
 st.divider()
 
-# --- 3. تحميل البيانات (PDF بشمولية أكبر & Excel بدقة) ---
+# --- 3. تحميل البيانات (قراءة شاملة للمحتوى) ---
 @st.cache_resource
 def load_all_data():
     data_path = "data/"
@@ -31,8 +31,8 @@ def load_all_data():
         if file.endswith(".pdf"):
             try:
                 reader = PdfReader(path)
-                # رفعنا القراءة لـ 25 صفحة لضمان الوصول لصلب القواعد والتفاصيل
-                for page in reader.pages[:25]:
+                # نأخذ أول 35 صفحة لضمان تغطية أدلة السلامة الضخمة بالكامل
+                for page in reader.pages[:35]:
                     t = page.extract_text()
                     if t: text += t
             except: continue
@@ -47,7 +47,7 @@ def load_all_data():
 
 all_docs = load_all_data()
 
-# --- 4. محرك البحث المتنوع (توزيع الذاكرة) ---
+# --- 4. محرك البحث الذكي (نظام القفز لتجاوز المقدمات) ---
 def get_relevant_context(query, docs):
     query_words = [word.lower() for word in query.split() if len(word) > 2]
     scored_docs = []
@@ -55,21 +55,35 @@ def get_relevant_context(query, docs):
     for filename, content in docs.items():
         filename_lower = filename.lower()
         content_lower = content.lower()
-        score = sum(15 for word in query_words if word in filename_lower)
-        score += sum(1 for word in query_words if word in content_lower)
+        
+        # حساب النقاط (أولوية عالية لاسم الملف)
+        score = sum(20 for word in query_words if word in filename_lower)
+        score += sum(2 for word in query_words if word in content_lower)
+        
         if score > 0:
-            scored_docs.append((score, filename, content))
+            # ✨ ميزة القفز الذكي: ابحث عن موقع أول كلمة مفتاحية في النص
+            start_index = 0
+            found_indices = [content_lower.find(word) for word in query_words if content_lower.find(word) != -1]
+            
+            if found_indices:
+                first_match = min(found_indices)
+                # إذا كانت الكلمة بعيدة (بعد أول 1000 حرف)، ابدأ القراءة من قبلها بـ 300 حرف
+                if first_match > 1000:
+                    start_index = first_match - 300
+            
+            scored_docs.append((score, filename, content[start_index:]))
 
+    # ترتيب النتائج
     scored_docs.sort(key=lambda x: x[0], reverse=True)
     
     context = ""
-    # توزيع الذاكرة لضمان رؤية تفاصيل أكثر من الملف الأول
+    # نأخذ أفضل 3 ملفات ونعطي مساحة كبيرة للملف الأول (الأساسي)
     for i in range(min(3, len(scored_docs))):
         score, filename, content = scored_docs[i]
-        # إذا كان هو الملف الأول (الأكثر صلة)، نعطيه مساحة أكبر (5000 حرف)
-        limit = 5000 if i == 0 else 2500
-        context += f"\n\n[مستند {i+1}: {filename}]\n{content[:limit]}\n"
-    return context[:12000]
+        limit = 7000 if i == 0 else 3000 # 7000 حرف للمصدر الأساسي كافية لذكر الـ 10 قواعد بالتفصيل
+        context += f"\n\n[المصدر رقم {i+1}: {filename}]\n{content[:limit]}\n"
+    
+    return context[:14000]
 
 # --- 5. إدارة المحادثة ---
 if "messages" not in st.session_state:
@@ -78,7 +92,7 @@ if "messages" not in st.session_state:
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]): st.write(msg["content"])
 
-# --- 6. الإدخال والرد الاحترافي ---
+# --- 6. الإدخال وتوليد الرد الاحترافي ---
 if question := st.chat_input("اسأل سالم عن أي تفصيل..."):
     st.session_state.messages.append({"role": "user", "content": question})
     with st.chat_message("user"): st.write(question)
@@ -93,20 +107,19 @@ if question := st.chat_input("اسأل سالم عن أي تفصيل..."):
                     {
                         "role": "system",
                         "content": """أنت خبير سلامة محترف في محطة جازان (سالم). 
-                        مهمتك هي تقديم إجابة شاملة، مرتبة، وشيقة من النصوص المرفقة.
-                        - استخدم العناوين العريضة (Bold) لتقسيم الإجابة.
-                        - استخدم النقاط (Bullet points) لشرح التفاصيل والخطوات.
-                        - إذا وجد عدد معين (مثل 10 قواعد)، اذكر العدد ثم فصّل النقاط.
-                        - لا تكتفِ بالملخص، بل استخرج التفاصيل الفنية الموجودة.
-                        - ابدأ الرد بترحيب مهني بسيط.
-                        - اذكر اسم الملف المرجعي في نهاية الإجابة."""
+                        مهمتك تقديم إجابة شاملة ومفصلة ومرتبة.
+                        - لا تكتفِ بذكر الفصول (مثل مقدمة، نطاق)، بل ادخل في صلب التفاصيل الفنية.
+                        - إذا كان السؤال عن قواعد، اذكرها جميعاً مع شرح مبسط لكل قاعدة.
+                        - استخدم العناوين العريضة (Bold) والقوائم النقطية.
+                        - اجعل أسلوبك توعوياً ومهنياً.
+                        - اذكر اسم الملف المرجعي بوضوح في نهاية الرد."""
                     },
-                    {"role": "user", "content": f"السؤال: {question}\n\nالنصوص المتاحة:\n{context}"}
+                    {"role": "user", "content": f"السؤال: {question}\n\nالنصوص المتاحة من ملفاتك:\n{context}"}
                 ],
-                temperature=0.2 # درجة بسيطة من المرونة لإعطاء تنسيق أجمل
+                temperature=0.2
             )
             answer = response["choices"][0]["message"]["content"]
             st.write(answer)
             st.session_state.messages.append({"role": "assistant", "content": answer})
         except Exception as e:
-            st.error(f"⚠️ خطأ فني: {e}")
+            st.error(f"⚠️ عذراً، حدث خطأ فني: {e}")
