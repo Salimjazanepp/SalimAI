@@ -14,10 +14,10 @@ openai.api_key = st.secrets["OPENAI_API_KEY"]
 st.set_page_config(page_title="سالم - محطة جازان", page_icon="🛡️")
 st.title("🛡️ مساعد السلامة الذكي (سالم)")
 st.markdown("<h3 style='color: #2E7D32;'>إلتزم بالسلامة.. وخلك سالم</h3>", unsafe_allow_html=True)
-st.info("📑 نظام بحث متطور لجميع ملفات السلامة - إدارة محطة طاقة جازان - نسخة تجريبية")
+st.info("📑 نظام بحث متطور لجميع ملفات السلامة - إدارة محطة طاقة جازان")
 st.divider()
 
-# --- 3. تحميل البيانات الذكي (PDF & Excel) ---
+# --- 3. تحميل البيانات (PDF بشمولية أكبر & Excel بدقة) ---
 @st.cache_resource
 def load_all_data():
     data_path = "data/"
@@ -28,29 +28,26 @@ def load_all_data():
     for file in files:
         path = os.path.join(data_path, file)
         text = ""
-        # 📄 معالجة PDF (قراءة مركزة)
         if file.endswith(".pdf"):
             try:
                 reader = PdfReader(path)
-                # نأخذ أول 12 صفحة (التي تحتوي عادة على القواعد والتعريفات)
-                for page in reader.pages[:12]:
+                # رفعنا القراءة لـ 25 صفحة لضمان الوصول لصلب القواعد والتفاصيل
+                for page in reader.pages[:25]:
                     t = page.extract_text()
                     if t: text += t
             except: continue
-        # 📊 معالجة Excel (احترافية كما هي)
         elif file.endswith((".xlsx", ".xls")):
             try:
                 df = pd.read_excel(path)
                 text = df.to_string()
             except: continue
-        
         if text.strip():
             docs[file] = text
     return docs
 
 all_docs = load_all_data()
 
-# --- 4. محرك البحث المتعدد (يمنع احتكار ملف واحد للنتائج) ---
+# --- 4. محرك البحث المتنوع (توزيع الذاكرة) ---
 def get_relevant_context(query, docs):
     query_words = [word.lower() for word in query.split() if len(word) > 2]
     scored_docs = []
@@ -58,26 +55,21 @@ def get_relevant_context(query, docs):
     for filename, content in docs.items():
         filename_lower = filename.lower()
         content_lower = content.lower()
-        
-        # نظام نقاط دقيق
-        score = sum(15 for word in query_words if word in filename_lower) # قوة لاسم الملف
-        score += sum(1 for word in query_words if word in content_lower) # قوة للمحتوى
-        
+        score = sum(15 for word in query_words if word in filename_lower)
+        score += sum(1 for word in query_words if word in content_lower)
         if score > 0:
             scored_docs.append((score, filename, content))
 
-    # ترتيب حسب الصلة بالسؤال
     scored_docs.sort(key=lambda x: x[0], reverse=True)
     
     context = ""
-    # 💡 الحل الجذري: نأخذ "مقتطفات" من أفضل 4 ملفات بدلاً من ملف واحد كامل
-    # كذا نضمن أننا نرى الإكسل و PDF المرتفعات و PDF السقالات معاً
-    for i in range(min(4, len(scored_docs))):
+    # توزيع الذاكرة لضمان رؤية تفاصيل أكثر من الملف الأول
+    for i in range(min(3, len(scored_docs))):
         score, filename, content = scored_docs[i]
-        # نأخذ 2800 حرف من كل ملف (حوالي 500 كلمة) لضمان التنوع
-        context += f"\n\n[مستند {i+1}: {filename}]\n{content[:2800]}\n"
-    
-    return context[:11500]
+        # إذا كان هو الملف الأول (الأكثر صلة)، نعطيه مساحة أكبر (5000 حرف)
+        limit = 5000 if i == 0 else 2500
+        context += f"\n\n[مستند {i+1}: {filename}]\n{content[:limit]}\n"
+    return context[:12000]
 
 # --- 5. إدارة المحادثة ---
 if "messages" not in st.session_state:
@@ -86,7 +78,7 @@ if "messages" not in st.session_state:
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]): st.write(msg["content"])
 
-# --- 6. الإدخال والرد ---
+# --- 6. الإدخال والرد الاحترافي ---
 if question := st.chat_input("اسأل سالم عن أي تفصيل..."):
     st.session_state.messages.append({"role": "user", "content": question})
     with st.chat_message("user"): st.write(question)
@@ -100,11 +92,18 @@ if question := st.chat_input("اسأل سالم عن أي تفصيل..."):
                 messages=[
                     {
                         "role": "system",
-                        "content": "أنت خبير سلامة في محطة جازان. أمامك مقتطفات من عدة ملفات (PDF وإكسل). وظيفتك الإجابة بدقة من المستند المرتبط بالسؤال. إذا سئلت عن بيانات جدولية، اعرضها بوضوح. اذكر اسم الملف المستخدم دائماً."
+                        "content": """أنت خبير سلامة محترف في محطة جازان (سالم). 
+                        مهمتك هي تقديم إجابة شاملة، مرتبة، وشيقة من النصوص المرفقة.
+                        - استخدم العناوين العريضة (Bold) لتقسيم الإجابة.
+                        - استخدم النقاط (Bullet points) لشرح التفاصيل والخطوات.
+                        - إذا وجد عدد معين (مثل 10 قواعد)، اذكر العدد ثم فصّل النقاط.
+                        - لا تكتفِ بالملخص، بل استخرج التفاصيل الفنية الموجودة.
+                        - ابدأ الرد بترحيب مهني بسيط.
+                        - اذكر اسم الملف المرجعي في نهاية الإجابة."""
                     },
                     {"role": "user", "content": f"السؤال: {question}\n\nالنصوص المتاحة:\n{context}"}
                 ],
-                temperature=0
+                temperature=0.2 # درجة بسيطة من المرونة لإعطاء تنسيق أجمل
             )
             answer = response["choices"][0]["message"]["content"]
             st.write(answer)
