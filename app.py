@@ -10,17 +10,14 @@ if "OPENAI_API_KEY" not in st.secrets:
     st.stop()
 openai.api_key = st.secrets["OPENAI_API_KEY"]
 
-# --- 2. الواجهة وتنسيق السلوجن ---
+# --- 2. الواجهة ---
 st.set_page_config(page_title="سالم - محطة جازان", page_icon="🛡️")
-
-# عرض اسم "سالم" والسلوجن بشكل جذاب
 st.title("🛡️ مساعد السلامة الذكي (سالم)")
-st.markdown("<h3 style='color: #2E7D32; font-family: sans-serif;'>إلتزم بالسلامة.. وخلك سالم</h3>", unsafe_allow_html=True)
-
+st.markdown("<h3 style='color: #2E7D32;'>إلتزم بالسلامة.. وخلك سالم</h3>", unsafe_allow_html=True)
 st.info("📑 نظام بحث متطور لجميع ملفات السلامة - إدارة محطة طاقة جازان - نسخة تجريبية")
 st.divider()
 
-# --- 3. تحميل البيانات (PDF & Excel) ---
+# --- 3. تحميل البيانات ---
 @st.cache_resource
 def load_all_data():
     data_path = "data/"
@@ -34,7 +31,7 @@ def load_all_data():
         if file.endswith(".pdf"):
             try:
                 reader = PdfReader(path)
-                for page in reader.pages[:15]:
+                for page in reader.pages[:12]: # تقليل الصفحات قليلاً لزيادة التركيز
                     t = page.extract_text()
                     if t: text += t
             except: continue
@@ -49,34 +46,27 @@ def load_all_data():
 
 all_docs = load_all_data()
 
-# --- 4. محرك البحث الذكي (نظام النقاط المطور) ---
+# --- 4. محرك البحث الذكي (الموزون) ---
 def get_relevant_context(query, docs):
-    query_words = query.lower().split()
+    query_words = [word.lower() for word in query.split() if len(word) > 2]
     scored_docs = []
 
     for filename, content in docs.items():
         filename_lower = filename.lower()
         content_lower = content.lower()
-        score = 0
-
-        # أولوية لاسم الملف
-        if any(word in filename_lower for word in query_words):
-            score += 20 
-
-        # تطابق المحتوى
-        for word in query_words:
-            if word in content_lower:
-                score += content_lower.count(word)
-
-        scored_docs.append((score, filename, content))
+        score = sum(5 for word in query_words if word in filename_lower)
+        score += sum(content_lower.count(word) for word in query_words)
+        
+        if score > 0:
+            scored_docs.append((score, filename, content))
 
     scored_docs.sort(key=lambda x: x[0], reverse=True)
     
     context = ""
-    for score, filename, content in scored_docs[:2]:
-        if score > 0:
-            context += f"\n\n[المصدر: {filename}]\n{content[:6000]}\n"
-    return context[:12000]
+    for i in range(min(2, len(scored_docs))):
+        score, filename, content = scored_docs[i]
+        context += f"\n\n[المصدر {i+1}: {filename}]\n{content[:5500]}\n"
+    return context[:11500]
 
 # --- 5. إدارة المحادثة ---
 if "messages" not in st.session_state:
@@ -85,8 +75,8 @@ if "messages" not in st.session_state:
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]): st.write(msg["content"])
 
-# --- 6. إدخال المستخدم وتوليد الرد ---
-if question := st.chat_input("اسأل سالم عن أي تفصيل في أنظمة السلامة..."):
+# --- 6. الإدخال والرد ---
+if question := st.chat_input("اسأل عن تفاصيل السلامة..."):
     st.session_state.messages.append({"role": "user", "content": question})
     with st.chat_message("user"): st.write(question)
 
@@ -99,9 +89,9 @@ if question := st.chat_input("اسأل سالم عن أي تفصيل في أنظ
                 messages=[
                     {
                         "role": "system",
-                        "content": "أنت خبير سلامة في محطة جازان. أجب بدقة من النص المرفق فقط. ركز على الموضوع المطلوب ولا تخلط الملفات. اعرض الخطوات كنقاط واذكر اسم الملف المستخدم في نهاية إجابتك."
+                        "content": "أنت خبير سلامة مهنية في محطة جازان. مهمتك هي الإجابة بدقة من المصادر المرفقة. إذا كانت الإجابة موجودة في 'المصدر 1' فاعتمد عليه بشكل أساسي. اذكر النقاط بوضوح واذكر اسم الملف في النهاية."
                     },
-                    {"role": "user", "content": f"النص:\n{context}\n\nالسؤال:\n{question}"}
+                    {"role": "user", "content": f"السؤال: {question}\n\nالنصوص المتاحة:\n{context}"}
                 ],
                 temperature=0
             )
@@ -109,7 +99,4 @@ if question := st.chat_input("اسأل سالم عن أي تفصيل في أنظ
             st.write(answer)
             st.session_state.messages.append({"role": "assistant", "content": answer})
         except Exception as e:
-            st.error(f"⚠️ خطأ فني: {e}")
-
-if not all_docs:
-    st.warning("⚠️ لا توجد ملفات داخل مجلد data")
+            st.error(f"⚠️ خطأ: {e}")
