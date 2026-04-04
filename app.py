@@ -4,26 +4,35 @@ import pandas as pd
 from pypdf import PdfReader
 import openai
 
-# --- 1. إعداد المفتاح ---
+# ------------------------
+# 1. API KEY
+# ------------------------
 if "OPENAI_API_KEY" not in st.secrets:
     st.error("⚠️ مفتاح OpenAI غير موجود")
     st.stop()
 
 openai.api_key = st.secrets["OPENAI_API_KEY"]
 
-# --- 2. الواجهة ---
+# ------------------------
+# 2. UI
+# ------------------------
 st.set_page_config(page_title="سالم - محطة جازان", page_icon="🛡️")
-st.markdown("### 🛡️ مساعد السلامة الذكي (سالم)")
-st.info("📑 نظام بحث متطور لجميع ملفات السلامة - إدارة محطة طاقة جازان - نسخة تجريبية")
 
-# --- 3. تحميل البيانات ---
+st.markdown("### 🛡️ مساعد السلامة الذكي (سالم)")
+st.markdown("#### إلتزم بالسلامة وخلك سالم")
+st.info("📑 نظام ذكي لملفات السلامة والموظفين - إدارة محطة جازان (نسخة تجريبية)")
+
+# ------------------------
+# 3. تحميل البيانات
+# ------------------------
 @st.cache_resource
 def load_all_data():
     data_path = "data/"
     docs = {}
+    excel_data = {}
 
     if not os.path.exists(data_path):
-        return {}
+        return {}, {}
 
     files = [f for f in os.listdir(data_path) if f.endswith(('.pdf', '.xlsx', '.xls'))]
 
@@ -54,6 +63,7 @@ def load_all_data():
         elif file.endswith((".xlsx", ".xls")):
             try:
                 df = pd.read_excel(path)
+                excel_data[file] = df
                 text = df.to_string()
             except:
                 continue
@@ -61,14 +71,34 @@ def load_all_data():
         if text.strip():
             docs[file] = text
 
-    return docs
+    return docs, excel_data
 
-all_docs = load_all_data()
+all_docs, excel_data = load_all_data()
 
-# 🧪 عرض الملفات للتأكد (احذفه لاحقًا)
+# عرض الملفات (اختياري)
 st.write("📂 الملفات:", list(all_docs.keys()))
 
-# --- 4. محرك البحث الذكي 🔥 ---
+# ------------------------
+# 4. بحث Excel
+# ------------------------
+def search_excel(query, excel_data):
+    query = query.lower()
+
+    for filename, df in excel_data.items():
+        for _, row in df.iterrows():
+            row_text = " ".join([str(x) for x in row.values]).lower()
+
+            if any(word in row_text for word in query.split()):
+                result = f"📊 من الملف: {filename}\n\n"
+                for col in df.columns:
+                    result += f"{col}: {row[col]}\n"
+                return result
+
+    return None
+
+# ------------------------
+# 5. بحث PDF
+# ------------------------
 def get_relevant_context(query, docs):
     query = query.lower()
     scored_docs = []
@@ -79,27 +109,30 @@ def get_relevant_context(query, docs):
 
         score = 0
 
-        # 🔥 1. تطابق اسم الملف (أقوى)
         if any(word in filename_lower for word in query.split()):
-            score += 5
+            score += 10
 
-        # 🔥 2. تطابق داخل المحتوى
         score += sum(word in content_lower for word in query.split())
 
         scored_docs.append((score, filename, content))
 
-    # ترتيب حسب الأعلى
     scored_docs.sort(reverse=True)
 
     context = ""
 
-    # 🔥 أفضل ملفين فقط لزيادة الدقة
-    for score, filename, content in scored_docs[:2]:
-        context += f"\n\n[مصدر: {filename}]\n{content[:5000]}"
+    main_doc = scored_docs[0]
+    context += f"\n\n[مصدر رئيسي: {main_doc[1]}]\n{main_doc[2][:6000]}"
+
+    for score, filename, content in scored_docs[1:]:
+        if filename != main_doc[1]:
+            context += f"\n\n[مصدر إضافي: {filename}]\n{content[:3000]}"
+            break
 
     return context[:12000]
 
-# --- 5. إدارة المحادثة ---
+# ------------------------
+# 6. المحادثة
+# ------------------------
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
@@ -107,17 +140,32 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.write(msg["content"])
 
-# --- 6. إدخال المستخدم ---
-if question := st.chat_input("اسأل عن أنظمة السلامة أو أي تفصيل..."):
+# ------------------------
+# 7. الإدخال
+# ------------------------
+if question := st.chat_input("اسأل سالم عن السلامة أو الموظفين..."):
+
     st.session_state.messages.append({"role": "user", "content": question})
 
     with st.chat_message("user"):
         st.write(question)
 
-    context = get_relevant_context(question, all_docs)
+    # 🔥 Excel أولاً
+    excel_result = search_excel(question, excel_data)
 
-    # 🧪 مراقبة
-    st.write("📊 حجم البيانات:", len(context))
+    if excel_result:
+        with st.chat_message("assistant"):
+            st.write(excel_result)
+
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": excel_result
+        })
+
+        st.stop()
+
+    # 🔥 PDF
+    context = get_relevant_context(question, all_docs)
 
     with st.chat_message("assistant"):
         try:
@@ -129,11 +177,10 @@ if question := st.chat_input("اسأل عن أنظمة السلامة أو أي 
                         "content": """أنت خبير سلامة في محطة طاقة.
 
 مهمتك:
-- أجب فقط من النص
-- ركز على الموضوع المطلوب (مثلاً: العمل على المرتفعات)
-- تجاهل أي معلومات غير مرتبطة
-- اعرض الخطوات كنقاط
-- اذكر المصدر إذا وجد
+- ركز على المصدر الرئيسي
+- استخدم المصدر الإضافي فقط للدعم
+- أجب من النص فقط
+- اعرض الإجابة كنقاط
 - لا تخمن أبداً
 """
                     },
@@ -157,6 +204,8 @@ if question := st.chat_input("اسأل عن أنظمة السلامة أو أي 
         except Exception as e:
             st.error(f"⚠️ خطأ: {e}")
 
-# --- 7. في حال ما فيه ملفات ---
+# ------------------------
+# 8. بدون بيانات
+# ------------------------
 if not all_docs:
     st.warning("⚠️ لا توجد ملفات داخل مجلد data")
