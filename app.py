@@ -14,13 +14,13 @@ if "OPENAI_API_KEY" not in st.secrets:
 openai.api_key = st.secrets["OPENAI_API_KEY"]
 
 # ------------------------
-# 2. UI
+# 2. الواجهة
 # ------------------------
 st.set_page_config(page_title="سالم - محطة جازان", page_icon="🛡️")
 
-st.markdown("### 🛡️ مساعد السلامة الذكي (سالم)")
-st.markdown("#### إلتزم بالسلامة وخلك سالم")
-st.info("📑 نظام ذكي لملفات السلامة والموظفين - إدارة محطة جازان (نسخة تجريبية)")
+st.title("🛡️ مساعد السلامة الافتراضي (سالم)")
+st.markdown("### إلتزم بالسلامة وخلك سالم")
+st.info("📑 نظام ذكي لملفات السلامة والموظفين - إدارة محطة طاقة جازان (نسخة تجريبية)")
 
 # ------------------------
 # 3. تحميل البيانات
@@ -75,24 +75,45 @@ def load_all_data():
 
 all_docs, excel_data = load_all_data()
 
-# عرض الملفات (اختياري)
+# عرض الملفات للتأكد
 st.write("📂 الملفات:", list(all_docs.keys()))
 
 # ------------------------
-# 4. بحث Excel
+# 4. بحث Excel احترافي 🔥
 # ------------------------
 def search_excel(query, excel_data):
-    query = query.lower()
+    query = query.lower().strip()
+    query_words = query.split()
+
+    best_match = None
+    best_score = 0
 
     for filename, df in excel_data.items():
         for _, row in df.iterrows():
-            row_text = " ".join([str(x) for x in row.values]).lower()
+            row_values = [str(x).lower() for x in row.values]
 
-            if any(word in row_text for word in query.split()):
-                result = f"📊 من الملف: {filename}\n\n"
-                for col in df.columns:
-                    result += f"{col}: {row[col]}\n"
-                return result
+            score = 0
+
+            for word in query_words:
+                for cell in row_values:
+                    if word in cell:
+                        score += 1
+
+            if score > best_score:
+                best_score = score
+                best_match = (filename, row, df.columns)
+
+    if best_match and best_score >= 2:
+        filename, row, columns = best_match
+
+        result = f"📊 من الملف: {filename}\n\n"
+
+        for col in columns:
+            value = row[col]
+            if pd.notna(value) and str(value).strip() != "":
+                result += f"{col}: {value}\n"
+
+        return result
 
     return None
 
@@ -120,13 +141,14 @@ def get_relevant_context(query, docs):
 
     context = ""
 
-    main_doc = scored_docs[0]
-    context += f"\n\n[مصدر رئيسي: {main_doc[1]}]\n{main_doc[2][:6000]}"
+    if scored_docs:
+        main_doc = scored_docs[0]
+        context += f"\n\n[مصدر رئيسي: {main_doc[1]}]\n{main_doc[2][:6000]}"
 
-    for score, filename, content in scored_docs[1:]:
-        if filename != main_doc[1]:
-            context += f"\n\n[مصدر إضافي: {filename}]\n{content[:3000]}"
-            break
+        for score, filename, content in scored_docs[1:]:
+            if filename != main_doc[1]:
+                context += f"\n\n[مصدر إضافي: {filename}]\n{content[:3000]}"
+                break
 
     return context[:12000]
 
